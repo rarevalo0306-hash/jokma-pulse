@@ -1,0 +1,17 @@
+{
+  "name": "jokma-pulse",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Atención al cliente por empresa, cuenta y canal.",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.15.0"
+  }
+}

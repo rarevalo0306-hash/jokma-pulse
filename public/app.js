@@ -53,11 +53,16 @@ function stars(value) {
 
 async function api(url, options) {
   const response = await fetch(url, {
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     ...options,
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || "No se pudo completar la acción.");
+  if (!response.ok) {
+    const error = new Error(payload.error || "No se pudo completar la acción.");
+    error.status = response.status;
+    throw error;
+  }
   return payload;
 }
 
@@ -88,16 +93,7 @@ function render() {
 }
 
 function sidebar() {
-  const companies = state.companies
-    .map((company) => {
-      const count = state.accounts.filter((item) => item.empresaId === company.id).length;
-      return `<button class="company-button" data-action="open-company" data-id="${escapeHtml(company.id)}" data-testid="company-${escapeHtml(company.id)}" aria-current="${state.selectedCompanyId === company.id && state.view === "empresa" ? "true" : "false"}">
-        <strong>${escapeHtml(company.nombre)}</strong>
-        <small>${escapeHtml(company.industria)} · ${count} agentes</small>
-      </button>`;
-    })
-    .join("");
-
+  const company = state.companies[0];
   return `<aside class="sidebar">
     <div class="brand">
       <div class="mark" aria-hidden="true"></div>
@@ -108,11 +104,8 @@ function sidebar() {
     </div>
     <div class="nav-stack">
       <button class="nav-button" data-action="nav-inbox" data-testid="nav-inbox" aria-current="${state.view === "bandeja" ? "page" : "false"}">Bandeja</button>
-      <button class="nav-button" data-action="new-company" data-testid="new-company">Nueva empresa</button>
-    </div>
-    <div>
-      <p class="hint">Empresas</p>
-      <div class="company-list">${companies || "<p class='hint'>Aún no hay empresas.</p>"}</div>
+      ${company ? `<button class="company-button" data-action="open-company" data-id="${escapeHtml(company.id)}" data-testid="company-${escapeHtml(company.id)}" aria-current="${state.view === "empresa" ? "true" : "false"}"><strong data-testid="session-company">${escapeHtml(company.nombre)}</strong><small>${escapeHtml(company.industria)} · ${state.accounts.length} agentes</small></button>` : ""}
+      <button class="nav-button" data-action="logout" data-testid="logout">Cerrar sesión</button>
     </div>
   </aside>`;
 }
@@ -142,7 +135,6 @@ function companyView() {
         <p class="eyebrow">Ficha y agentes</p>
         <h2>${escapeHtml(title)}</h2>
       </div>
-      ${creating ? "" : `<button class="danger" data-action="delete-company" data-testid="delete-company">Eliminar empresa</button>`}
     </header>
     ${banner()}
     <section class="panel">
@@ -205,14 +197,6 @@ function accountsSection(company) {
 }
 
 function inboxView() {
-  const companyOptions = [`<option value="">Todas las empresas</option>`]
-    .concat(
-      state.companies.map(
-        (company) =>
-          `<option value="${escapeHtml(company.id)}" ${state.filterCompany === company.id ? "selected" : ""}>${escapeHtml(company.nombre)}</option>`,
-      ),
-    )
-    .join("");
   const channelOptions = [`<option value="">Todos los canales</option>`]
     .concat(
       state.canales.map(
@@ -251,7 +235,6 @@ function inboxView() {
     </header>
     ${banner()}
     <div class="filters">
-      <select data-testid="filter-company" data-filter="company">${companyOptions}</select>
       <select data-testid="filter-channel" data-filter="channel">${channelOptions}</select>
     </div>
     <div class="inbox">
@@ -266,14 +249,10 @@ function inboxView() {
 }
 
 function composer() {
-  const companyOptions = state.companies
-    .map((company) => `<option value="${escapeHtml(company.id)}">${escapeHtml(company.nombre)}</option>`)
-    .join("");
   return `<details class="composer" data-testid="message-form-wrap">
     <summary>Nuevo mensaje</summary>
     <form data-action="save-message" data-testid="message-form">
     <div class="grid" style="margin-top:12px">
-      <label class="span-2">Empresa<select id="message-company" data-testid="message-company">${companyOptions}</select></label>
       <label class="span-2">Agente y canal<select id="message-account" data-testid="message-account"></select></label>
       <label>Cliente<input id="message-name" data-testid="message-name" /></label>
       <label id="rating-wrap">Estrellas<select id="message-rating" data-testid="message-rating">
@@ -348,11 +327,10 @@ function banner() {
 }
 
 function fillAccountSelect() {
-  const companySelect = document.querySelector("#message-company");
   const accountSelect = document.querySelector("#message-account");
   const ratingWrap = document.querySelector("#rating-wrap");
-  if (!companySelect || !accountSelect) return;
-  const empresaId = companySelect.value;
+  if (!accountSelect) return;
+  const empresaId = state.companies[0]?.id;
   const accounts = state.accounts.filter((item) => item.empresaId === empresaId);
   accountSelect.innerHTML = accounts
     .map(
@@ -372,13 +350,11 @@ app.addEventListener("input", (event) => {
 
 app.addEventListener("change", async (event) => {
   if (event.target.dataset.filter) {
-    if (event.target.dataset.filter === "company") state.filterCompany = event.target.value;
     if (event.target.dataset.filter === "channel") state.filterChannel = event.target.value;
     render();
     fillAccountSelect();
     return;
   }
-  if (event.target.id === "message-company") fillAccountSelect();
   if (event.target.id === "message-account") {
     const selected = accountById(event.target.value);
     const ratingWrap = document.querySelector("#rating-wrap");
@@ -392,10 +368,16 @@ app.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
     state.error = "";
+    if (form.dataset.action === "login") await submitLogin();
     if (form.dataset.action === "save-company") await saveCompany();
     if (form.dataset.action === "save-account-new") await createAccount();
     if (form.dataset.action === "save-message") await createMessage();
   } catch (error) {
+    if (form.dataset.action === "login") {
+      const node = document.querySelector('[data-testid="login-error"]');
+      if (node) node.textContent = error.message;
+      return;
+    }
     state.error = error.message;
     render();
     fillAccountSelect();
@@ -413,26 +395,22 @@ app.addEventListener("click", async (event) => {
       state.notice = "";
       render();
       fillAccountSelect();
-    } else if (action === "new-company") {
-      state.view = "nueva";
+    } else if (action === "logout") {
+      await api("/api/sesion", { method: "DELETE" });
+      state.companies = [];
+      state.accounts = [];
+      state.messages = [];
       state.selectedCompanyId = null;
+      state.selectedMessageId = null;
+      state.error = "";
       state.notice = "";
-      setDraftFromCompany(null);
-      render();
+      renderLogin();
     } else if (action === "open-company") {
       state.view = "empresa";
       state.selectedCompanyId = button.dataset.id;
       state.notice = "";
       setDraftFromCompany(companyById(button.dataset.id));
       render();
-    } else if (action === "delete-company") {
-      if (!confirm("¿Eliminar esta empresa, sus agentes y sus mensajes?")) return;
-      await api(`/api/empresas/${state.selectedCompanyId}`, { method: "DELETE" });
-      state.view = "bandeja";
-      state.selectedCompanyId = null;
-      await load();
-      render();
-      fillAccountSelect();
     } else if (action === "delete-account") {
       await api(`/api/cuentas/${button.dataset.id}`, { method: "DELETE" });
       await load();
@@ -519,25 +497,13 @@ async function saveCompany() {
     payload[field] = input ? input.value : state.draft?.[field] || "";
   }
   state.draft = payload;
-  if (state.view === "nueva") {
-    const created = await api("/api/empresas", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    await load();
-    state.view = "empresa";
-    state.selectedCompanyId = created.id;
-    setDraftFromCompany(created);
-    state.notice = "Empresa creada.";
-  } else {
-    const updated = await api(`/api/empresas/${state.selectedCompanyId}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
-    await load();
-    setDraftFromCompany(updated);
-    state.notice = "Ficha guardada en los agentes de esta empresa.";
-  }
+  const updated = await api(`/api/empresas/${state.selectedCompanyId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  await load();
+  setDraftFromCompany(updated);
+  state.notice = "Ficha guardada en los agentes de esta empresa.";
   render();
 }
 
@@ -578,12 +544,63 @@ async function createMessage() {
   fillAccountSelect();
 }
 
-load()
-  .then(() => {
+function renderLogin(message = "") {
+  app.dataset.ready = "true";
+  app.dataset.testid = "app-ready";
+  app.innerHTML = `<main class="login-screen">
+    <form class="login-card" data-action="login" data-testid="login-form">
+      <div class="brand">
+        <div class="mark" aria-hidden="true"></div>
+        <div>
+          <h1>Jokma Pulse</h1>
+          <p class="hint">Entra con tu empresa</p>
+        </div>
+      </div>
+      <p class="model-note">Cada acceso ve solo su ficha, sus cuentas de canal y su bandeja. El agente de cada cuenta sigue usando únicamente esa ficha.</p>
+      <label>Usuario<input id="login-user" data-testid="login-user" autocomplete="username" /></label>
+      <label>Clave<input id="login-password" data-testid="login-password" type="password" autocomplete="current-password" /></label>
+      <button class="primary" type="submit" data-testid="login-submit">Entrar</button>
+      <p class="error" data-testid="login-error">${escapeHtml(message)}</p>
+    </form>
+    <aside class="login-card demo-logins" data-testid="demo-logins">
+      <h2>Accesos de demostración</h2>
+      <p><strong>Cafetería Lumen</strong><br />usuario <code>lumen</code> · clave <code>lumen123</code></p>
+      <p><strong>Clínica Dental Arce</strong><br />usuario <code>arce</code> · clave <code>arce123</code></p>
+    </aside>
+  </main>`;
+}
+
+async function submitLogin() {
+  await api("/api/sesion", {
+    method: "POST",
+    body: JSON.stringify({
+      usuario: document.querySelector("#login-user").value,
+      clave: document.querySelector("#login-password").value,
+    }),
+  });
+  state.error = "";
+  state.view = "bandeja";
+  await load();
+  state.selectedCompanyId = state.companies[0]?.id || null;
+  render();
+  fillAccountSelect();
+}
+
+async function boot() {
+  try {
+    await load();
+    state.selectedCompanyId = state.companies[0]?.id || null;
+    state.view = "bandeja";
     render();
     fillAccountSelect();
-  })
-  .catch((error) => {
+  } catch (error) {
+    if (error.status === 401) {
+      renderLogin();
+      return;
+    }
     app.dataset.ready = "true";
     app.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
-  });
+  }
+}
+
+boot();

@@ -11,6 +11,8 @@ const LUMEN = {
   correoOficial: "hola@cafelumen.mx",
   sitioWeb: "https://cafelumen.mx",
   soporte: "soporte@cafelumen.mx",
+  usuario: "lumen",
+  clave: "lumen123",
 };
 
 const ARCE = {
@@ -23,6 +25,8 @@ const ARCE = {
   correoOficial: "contacto@dentalarce.mx",
   sitioWeb: "https://dentalarce.mx",
   soporte: "+52 33 4500 2290",
+  usuario: "arce",
+  clave: "arce123",
 };
 
 function account(company, { id, canal, cuenta, agente }) {
@@ -56,6 +60,11 @@ function message({ id, cuentaId, empresaId, canal, nombreCliente, texto, calific
     createdAt,
   };
 }
+
+export const DEMO_LOGINS = [
+  { id: "co-lumen", nombre: "Cafetería Lumen", usuario: "lumen", clave: "lumen123" },
+  { id: "co-arce", nombre: "Clínica Dental Arce", usuario: "arce", clave: "arce123" },
+];
 
 export function buildSeed() {
   const companies = [structuredClone(LUMEN), structuredClone(ARCE)];

@@ -1,6 +1,7 @@
 import path from "node:path";
 import express from "express";
 import { fileURLToPath } from "node:url";
+import { clearSessionCookie, publicCompany, readSessionCookie, sessionCookie } from "./src/auth.js";
 import { auditReply, generateReply } from "./src/replies.js";
 import { createStore } from "./src/store.js";
 import { AGENT_TYPE, CHANNEL_LABELS, CHANNELS, TONE_BY_CHANNEL } from "./src/tones.js";
@@ -33,91 +34,145 @@ function meta() {
   };
 }
 
+function sessionCompany(req) {
+  const companyId = readSessionCookie(req.headers.cookie);
+  if (!companyId) return null;
+  const company = store.getState().companies.find((item) => item.id === companyId);
+  return company || null;
+}
+
+function requireSession(req, res, next) {
+  const company = sessionCompany(req);
+  if (!company) {
+    res.status(401).json({ error: "Inicia sesión para ver tu empresa." });
+    return;
+  }
+  req.empresa = company;
+  next();
+}
+
+function forbidOther(req, empresaId) {
+  if (req.empresa.id !== empresaId) {
+    throw Object.assign(new Error("Esa empresa no está en tu sesión."), { status: 403 });
+  }
+}
+
+function accountFor(req, accountId) {
+  const account = store.getState().accounts.find((item) => item.id === accountId);
+  if (!account || account.empresaId !== req.empresa.id) {
+    throw Object.assign(new Error("Esa cuenta no está en tu sesión."), { status: 404 });
+  }
+  return account;
+}
+
+function messageFor(req, messageId) {
+  const message = store.getState().messages.find((item) => item.id === messageId);
+  if (!message || message.empresaId !== req.empresa.id) {
+    throw Object.assign(new Error("Ese mensaje no está en tu sesión."), { status: 404 });
+  }
+  return message;
+}
+
 app.get("/api/salud", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/estado", (_req, res) => {
-  res.json({ ...store.getState(), ...meta() });
+app.post("/api/sesion", (req, res) => {
+  const company = store.authenticate(req.body?.usuario, req.body?.clave);
+  if (!company) {
+    res.status(401).json({ error: "Usuario o clave incorrectos." });
+    return;
+  }
+  res.setHeader("Set-Cookie", sessionCookie(company.id));
+  res.json({ empresa: company });
 });
 
-app.post("/api/empresas", (req, res) => {
+app.delete("/api/sesion", (_req, res) => {
+  res.setHeader("Set-Cookie", clearSessionCookie());
+  res.json({ ok: true });
+});
+
+app.get("/api/sesion", requireSession, (req, res) => {
+  res.json({ empresa: publicCompany(req.empresa) });
+});
+
+app.get("/api/estado", requireSession, (req, res) => {
+  res.json({ ...store.scopedState(req.empresa.id), ...meta() });
+});
+
+app.post("/api/empresas", requireSession, (_req, res) => {
+  res.status(403).json({ error: "Cada empresa entra con su propio acceso." });
+});
+
+app.put("/api/empresas/:id", requireSession, (req, res) => {
   try {
-    res.status(201).json(store.createCompany(req.body || {}));
+    forbidOther(req, req.params.id);
+    res.json(publicCompany(store.updateCompany(req.params.id, req.body || {})));
   } catch (error) {
     fail(res, error);
   }
 });
 
-app.put("/api/empresas/:id", (req, res) => {
+app.delete("/api/empresas/:id", requireSession, (req, res) => {
   try {
-    res.json(store.updateCompany(req.params.id, req.body || {}));
+    forbidOther(req, req.params.id);
+    const result = store.deleteCompany(req.params.id);
+    res.setHeader("Set-Cookie", clearSessionCookie());
+    res.json(result);
   } catch (error) {
     fail(res, error);
   }
 });
 
-app.delete("/api/empresas/:id", (req, res) => {
+app.post("/api/empresas/:id/cuentas", requireSession, (req, res) => {
   try {
-    res.json(store.deleteCompany(req.params.id));
-  } catch (error) {
-    fail(res, error);
-  }
-});
-
-app.post("/api/empresas/:id/cuentas", (req, res) => {
-  try {
+    forbidOther(req, req.params.id);
     res.status(201).json(store.createAccount(req.params.id, req.body || {}));
   } catch (error) {
     fail(res, error);
   }
 });
 
-app.put("/api/cuentas/:id", (req, res) => {
+app.put("/api/cuentas/:id", requireSession, (req, res) => {
   try {
+    accountFor(req, req.params.id);
     res.json(store.updateAccount(req.params.id, req.body || {}));
   } catch (error) {
     fail(res, error);
   }
 });
 
-app.delete("/api/cuentas/:id", (req, res) => {
+app.delete("/api/cuentas/:id", requireSession, (req, res) => {
   try {
+    accountFor(req, req.params.id);
     res.json(store.deleteAccount(req.params.id));
   } catch (error) {
     fail(res, error);
   }
 });
 
-app.post("/api/mensajes", (req, res) => {
+app.post("/api/mensajes", requireSession, (req, res) => {
   try {
+    accountFor(req, req.body?.cuentaId);
     res.status(201).json(store.createMessage(req.body || {}));
   } catch (error) {
     fail(res, error);
   }
 });
 
-app.delete("/api/mensajes/:id", (req, res) => {
+app.delete("/api/mensajes/:id", requireSession, (req, res) => {
   try {
+    messageFor(req, req.params.id);
     res.json(store.deleteMessage(req.params.id));
   } catch (error) {
     fail(res, error);
   }
 });
 
-app.post("/api/mensajes/:id/respuesta", (req, res) => {
+app.post("/api/mensajes/:id/respuesta", requireSession, (req, res) => {
   try {
-    const state = store.getState();
-    const message = state.messages.find((item) => item.id === req.params.id);
-    if (!message) {
-      res.status(404).json({ error: "No encontramos ese mensaje." });
-      return;
-    }
-    const account = state.accounts.find((item) => item.id === message.cuentaId);
-    if (!account) {
-      res.status(404).json({ error: "La cuenta de este mensaje ya no existe." });
-      return;
-    }
+    const message = messageFor(req, req.params.id);
+    const account = accountFor(req, message.cuentaId);
     const respuesta = generateReply(account, message);
     const saved = store.saveReply(message.id, respuesta);
     res.json({

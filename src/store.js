@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { publicCompany, sameSecret } from "./auth.js";
 import { snapshotFicha } from "./ficha.js";
-import { buildSeed } from "./seed.js";
+import { buildSeed, DEMO_LOGINS } from "./seed.js";
 import { AGENT_TYPE, CHANNELS, isChannel, TONE_BY_CHANNEL } from "./tones.js";
 
 const COMPANY_FIELDS = [
@@ -62,7 +63,43 @@ export function createStore(dataPath) {
     parsed.companies ||= [];
     parsed.accounts ||= [];
     parsed.messages ||= [];
+    if (ensureDemoLogins(parsed)) save(parsed);
     return parsed;
+  }
+
+  function ensureDemoLogins(state) {
+    let changed = false;
+    for (const demo of DEMO_LOGINS) {
+      const company = state.companies.find((item) => item.id === demo.id);
+      if (!company) continue;
+      if (!company.usuario || !company.clave) {
+        company.usuario = demo.usuario;
+        company.clave = demo.clave;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  function scopedState(empresaId) {
+    const state = load();
+    return {
+      companies: state.companies.filter((item) => item.id === empresaId).map(publicCompany),
+      accounts: state.accounts.filter((item) => item.empresaId === empresaId),
+      messages: state.messages.filter((item) => item.empresaId === empresaId),
+    };
+  }
+
+  function authenticate(usuario, clave) {
+    const user = clean(usuario, 80).toLowerCase();
+    const password = String(clave ?? "").trim();
+    if (!user || !password) return null;
+    const state = load();
+    const company = state.companies.find(
+      (item) => String(item.usuario || "").toLowerCase() === user,
+    );
+    if (!company || !sameSecret(company.clave || "\0", password)) return null;
+    return publicCompany(company);
   }
 
   function save(state) {
@@ -251,6 +288,8 @@ export function createStore(dataPath) {
     createMessage,
     deleteMessage,
     saveReply,
+    scopedState,
+    authenticate,
     channels: CHANNELS,
   };
 }

@@ -91,7 +91,8 @@ function isDarkTheme() {
 }
 
 function pulseMark() {
-  return `<svg class="pulse-mark" viewBox="0 0 64 32" aria-hidden="true" focusable="false"><path pathLength="100" d="M2 18 H16 L24 18 L32 6 L40 26 L46 18 H62" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const line = `pathLength="100" d="M2 18 H16 L24 18 L32 6 L40 26 L46 18 H62" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"`;
+  return `<svg class="pulse-mark" viewBox="0 0 64 32" aria-hidden="true" focusable="false"><path class="pulse-line" ${line}/><path class="pulse-spark" ${line}/></svg>`;
 }
 
 function brandLockup() {

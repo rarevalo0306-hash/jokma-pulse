@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { publicCompany, sameSecret } from "./auth.js";
 import { snapshotFicha } from "./ficha.js";
 import { buildSeed, DEMO_LOGINS } from "./seed.js";
+import { normalizeSettings } from "./settings.js";
 import { AGENT_TYPE, CHANNELS, isChannel, TONE_BY_CHANNEL } from "./tones.js";
 
 const COMPANY_FIELDS = [
@@ -81,10 +82,16 @@ export function createStore(dataPath) {
     return changed;
   }
 
+  function presentCompany(company) {
+    const pub = publicCompany(company);
+    pub.ajustes = normalizeSettings(company?.ajustes, company);
+    return pub;
+  }
+
   function scopedState(empresaId) {
     const state = load();
     return {
-      companies: state.companies.filter((item) => item.id === empresaId).map(publicCompany),
+      companies: state.companies.filter((item) => item.id === empresaId).map(presentCompany),
       accounts: state.accounts.filter((item) => item.empresaId === empresaId),
       messages: state.messages.filter((item) => item.empresaId === empresaId),
     };
@@ -131,9 +138,27 @@ export function createStore(dataPath) {
     if (!company) throw fail(404, "No encontramos esa empresa.");
     const patch = readCompanyInput(input);
     Object.assign(company, patch);
+    if (company.ajustes) {
+      if (patch.nombre !== undefined) company.ajustes.organization = company.nombre;
+      if (patch.servicios !== undefined) company.ajustes.products = company.servicios;
+    }
     syncAgents(state, company);
     save(state);
     return company;
+  }
+
+  function updateSettings(id, input) {
+    const state = load();
+    const company = state.companies.find((item) => item.id === id);
+    if (!company) throw fail(404, "No encontramos esa empresa.");
+    const ajustes = normalizeSettings(input, company);
+    if (!ajustes.organization) throw fail(400, "La organización necesita un nombre.");
+    company.ajustes = ajustes;
+    company.nombre = ajustes.organization;
+    company.servicios = ajustes.products;
+    syncAgents(state, company);
+    save(state);
+    return presentCompany(company);
   }
 
   function deleteCompany(id) {
@@ -281,6 +306,7 @@ export function createStore(dataPath) {
     getState,
     createCompany,
     updateCompany,
+    updateSettings,
     deleteCompany,
     createAccount,
     updateAccount,

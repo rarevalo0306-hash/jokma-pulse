@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { clearSessionCookie, publicCompany, readSessionCookie, sessionCookie } from "./src/auth.js";
 import { auditReply, generateReply } from "./src/replies.js";
 import { createStore } from "./src/store.js";
+import { acceptReply, deliverInbound } from "./src/n8n.js";
+import { CONNECTIONS, MODELS, PARAMETERS } from "./src/settings.js";
 import { AGENT_TYPE, CHANNEL_LABELS, CHANNELS, TONE_BY_CHANNEL } from "./src/tones.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +37,9 @@ function meta() {
       etiqueta: CHANNEL_LABELS[id],
       tono: TONE_BY_CHANNEL[id],
     })),
+    modelos: MODELS,
+    parametros: PARAMETERS,
+    conexiones: CONNECTIONS,
   };
 }
 
@@ -108,6 +113,15 @@ app.post("/api/empresas", requireSession, (_req, res) => {
   res.status(403).json({ error: "Cada empresa entra con su propio acceso." });
 });
 
+app.put("/api/empresas/:id/ajustes", requireSession, (req, res) => {
+  try {
+    forbidOther(req, req.params.id);
+    res.json(store.updateSettings(req.params.id, req.body || {}));
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
 app.put("/api/empresas/:id", requireSession, (req, res) => {
   try {
     forbidOther(req, req.params.id);
@@ -155,10 +169,29 @@ app.delete("/api/cuentas/:id", requireSession, (req, res) => {
   }
 });
 
-app.post("/api/mensajes", requireSession, (req, res) => {
+function publicOrigin(req) {
+  if (process.env.VERCEL) return "https://jokma-pulse.vercel.app";
+  const proto = req.headers["x-forwarded-proto"] || "http";
+  const host = req.headers.host || "127.0.0.1:4317";
+  return `${proto}://${host}`;
+}
+
+app.post("/api/mensajes", requireSession, async (req, res) => {
   try {
     accountFor(req, req.body?.cuentaId);
-    res.status(201).json(store.createMessage(req.body || {}));
+    const message = store.createMessage(req.body || {});
+    const company = store.getState().companies.find((item) => item.id === message.empresaId);
+    const n8n = await deliverInbound({ company, message, origin: publicOrigin(req) });
+    res.status(201).json({ ...message, n8nEnviado: n8n.enviado });
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.post("/api/n8n/respuesta", (req, res) => {
+  try {
+    const saved = acceptReply(store, req.body || {});
+    res.json({ ok: true, mensajeId: saved.message.id });
   } catch (error) {
     fail(res, error);
   }

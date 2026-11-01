@@ -573,6 +573,20 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .thread-meta { display: flex; flex-wrap: wrap; gap: var(--s1); align-items: center; }
 .thread-select .original { border: 0; padding: 0; }
 
+.settings-screen { display: grid; gap: var(--s3); }
+.settings-scroll { overflow-x: auto; }
+.settings-table { width: 100%; min-width: 640px; border-collapse: collapse; }
+.settings-table th, .settings-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--s1) var(--s1) var(--s2) 0;
+  border-bottom: 1px solid var(--line);
+  font-weight: 500;
+}
+.settings-table thead th { font-size: 12px; line-height: 16px; }
+.settings-network { display: grid; gap: var(--s2); margin-top: var(--s3); }
+.settings-network h3 { font-size: 16px; line-height: 24px; font-weight: 600; }
+
 .stars { color: var(--ink); letter-spacing: 0.08em; }
 :root[data-theme="dark"] .stars { color: var(--verde); }
 

@@ -12,6 +12,7 @@ const state = {
   draft: null,
   filterCompany: "",
   filterChannel: "",
+  settingsDraft: null,
   error: "",
   notice: "",
 };
@@ -240,6 +241,9 @@ async function load() {
   state.accounts = payload.accounts;
   state.messages = payload.messages;
   state.canales = payload.canales;
+  state.modelos = payload.modelos || [];
+  state.parametros = payload.parametros || [];
+  state.conexiones = payload.conexiones || [];
   if (state.selectedCompanyId && !companyById(state.selectedCompanyId)) {
     state.selectedCompanyId = null;
     state.view = "bandeja";
@@ -311,7 +315,12 @@ function skeletonLines(count) {
 function render() {
   app.dataset.ready = "true";
   app.dataset.testid = "app-ready";
-  const body = state.view === "empresa" || state.view === "nueva" ? companyView() : inboxView();
+  const body =
+    state.view === "empresa" || state.view === "nueva"
+      ? companyView()
+      : state.view === "ajustes"
+        ? settingsView()
+        : inboxView();
   app.innerHTML = `<div class="shell"><a class="skip" href="#contenido">Saltar al contenido</a><p class="sr-only" aria-live="polite" data-testid="arrival-note">${escapeHtml(arrivalNote)}</p>${appBar()}<main class="main" id="contenido" tabindex="-1">${body}</main></div>`;
 }
 
@@ -319,6 +328,7 @@ function appBar() {
   return `<header class="app-bar">
     <div class="brand"><h1 class="lockup">${brandLockup()}</h1></div>
     <div class="nav-footer">
+      <button type="button" class="nav-button" data-action="open-settings" data-testid="nav-settings" ${state.view === "ajustes" ? 'aria-current="page"' : ""}>Ajustes</button>
       ${themeButton()}
       <button type="button" class="nav-button" data-action="logout" data-testid="logout">Cerrar sesión</button>
     </div>
@@ -478,6 +488,7 @@ function inboxView() {
       </div>
       <div class="actions">
         <button type="button" class="nav-button" data-action="nav-inbox" data-testid="nav-inbox" aria-current="page">Mensajes</button>
+        <button type="button" class="ghost" data-action="open-settings">Ajustes</button>
         ${company ? `<button type="button" class="ghost company-button" data-action="open-company" data-id="${escapeHtml(company.id)}" data-testid="company-${escapeHtml(company.id)}">Ficha</button>` : ""}
       </div>
     </section>
@@ -574,6 +585,97 @@ function messageDetail() {
   </section>`;
 }
 
+function settingValue(draft, key) {
+  return draft?.[key] ?? "";
+}
+
+function settingControl(row, draft) {
+  const value = settingValue(draft, row.api);
+  const secret = row.secreto ? ` type="password" autocomplete="new-password" spellcheck="false"` : ` type="text" autocomplete="off"`;
+  if (row.largo) {
+    return `<textarea data-setting="${escapeHtml(row.api)}" data-testid="setting-${escapeHtml(row.api)}" rows="3">${escapeHtml(value)}</textarea>`;
+  }
+  return `<input data-setting="${escapeHtml(row.api)}" data-testid="setting-${escapeHtml(row.api)}" value="${escapeHtml(value)}"${secret} />`;
+}
+
+function settingRows(rows, draft) {
+  return rows
+    .map(
+      (row) => `<tr>
+        <th scope="row">${escapeHtml(row.nombre)}</th>
+        <td><code>${escapeHtml(row.api)}</code></td>
+        <td>${settingControl(row, draft)}</td>
+      </tr>`,
+    )
+    .join("");
+}
+
+function settingsTable(rows, draft) {
+  return `<div class="settings-scroll">
+    <table class="settings-table">
+      <thead><tr><th>Nombre</th><th>Nombre en la API</th><th>Valor</th></tr></thead>
+      <tbody>${settingRows(rows, draft)}</tbody>
+    </table>
+  </div>`;
+}
+
+function settingsView() {
+  const company = state.companies[0];
+  const draft = state.settingsDraft || company?.ajustes || {};
+  const currentModel = settingValue(draft, "model") || "jokma-ficha";
+  const models = state.modelos?.length ? [...state.modelos] : [{ id: "jokma-ficha", etiqueta: "Jokma Ficha" }];
+  if (!models.some((item) => item.id === currentModel)) {
+    models.unshift({ id: currentModel, etiqueta: currentModel });
+  }
+  const options = models
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.id)}"${item.id === currentModel ? " selected" : ""}>${escapeHtml(item.etiqueta)}</option>`,
+    )
+    .join("");
+  const connections = (state.conexiones || [])
+    .map(
+      (group) => `<section class="settings-network" data-network="${escapeHtml(group.red)}">
+        <h3>${escapeHtml(group.red)}</h3>
+        ${settingsTable(group.filas || [], draft)}
+      </section>`,
+    )
+    .join("");
+
+  return `<header class="topbar">
+      <div>
+        <p class="eyebrow">Ajustes de la empresa</p>
+        <h2 data-testid="settings-company">${escapeHtml(company?.nombre || "Empresa")}</h2>
+        <p class="lede">Una sola pantalla para el modelo, los parámetros y las conexiones de esta empresa.</p>
+      </div>
+      <button type="button" class="ghost" data-action="nav-inbox" data-testid="nav-inbox">Volver a los mensajes</button>
+    </header>
+    ${banner()}
+    <form class="settings-screen" data-action="save-settings" data-testid="settings-form">
+      <section class="panel">
+        <h3>Modelo</h3>
+        <label for="model-select">Modelo de la respuesta automática
+          <select id="model-select" data-testid="model-select">${options}</select>
+        </label>
+        <p class="hint">La respuesta sigue las reglas del canal y la ficha. El modelo elegido se guarda en esta empresa.</p>
+      </section>
+      <section class="panel" data-testid="settings-parameters">
+        <h3>Parámetros</h3>
+        <p class="hint">Nombre, nombre en la API y valor. Incluye el perfil, la organización, la descripción, los productos y la guía de la IA.</p>
+        ${settingsTable(state.parametros || [], draft)}
+      </section>
+      <section class="panel" data-testid="settings-connections">
+        <h3>Conexiones</h3>
+        <p class="hint">Gmail usa n8n: cada correo nuevo se envía a la URL del webhook y la respuesta vuelve a Pulse. Instagram, Facebook y X no tienen OAuth.</p>
+        ${connections}
+      </section>
+      <div class="actions">
+        <button class="primary" type="submit" data-testid="save-settings">Guardar ajustes</button>
+        <span class="ok-note" data-testid="save-status">${escapeHtml(state.notice)}</span>
+      </div>
+    </form>`;
+}
+
 function banner() {
   if (!state.error) return "";
   return `<p class="error" data-testid="form-error" role="alert">${escapeHtml(state.error)}</p>`;
@@ -606,12 +708,29 @@ function fillAccountSelect() {
 }
 
 app.addEventListener("input", (event) => {
+  const setting = event.target.dataset.setting;
+  if (setting && state.settingsDraft) {
+    state.settingsDraft[setting] = event.target.value;
+    if (setting === "model") {
+      const select = document.querySelector("#model-select");
+      if (select && [...select.options].some((option) => option.value === event.target.value)) {
+        select.value = event.target.value;
+      }
+    }
+    return;
+  }
   const field = event.target.dataset.field;
   if (!field || !state.draft) return;
   state.draft[field] = event.target.value;
 });
 
 app.addEventListener("change", async (event) => {
+  if (event.target.id === "model-select" && state.settingsDraft) {
+    state.settingsDraft.model = event.target.value;
+    const input = document.querySelector("[data-setting='model']");
+    if (input) input.value = event.target.value;
+    return;
+  }
   if (event.target.dataset.filter) {
     if (event.target.dataset.filter === "channel") state.filterChannel = event.target.value;
     render();
@@ -635,6 +754,7 @@ app.addEventListener("submit", async (event) => {
     "save-company": ["[data-testid='save-company']", "Guardando"],
     "save-account-new": ["[data-testid='save-account']", "Agregando"],
     "save-message": ["[data-testid='save-message']", "Agregando"],
+    "save-settings": ["[data-testid='save-settings']", "Guardando"],
   }[form.dataset.action];
   if (busy) setControlBusy(busy[0], true, busy[1]);
   try {
@@ -643,6 +763,7 @@ app.addEventListener("submit", async (event) => {
     if (form.dataset.action === "save-company") await saveCompany();
     if (form.dataset.action === "save-account-new") await createAccount();
     if (form.dataset.action === "save-message") await createMessage();
+    if (form.dataset.action === "save-settings") await saveSettings();
   } catch (error) {
     if (form.dataset.action === "login") {
       setControlBusy("[data-testid='login-submit']", false);
@@ -687,9 +808,16 @@ app.addEventListener("click", async (event) => {
       state.selectedPerson = null;
       state.selectedMessageId = null;
       state.filterChannel = "";
+      state.settingsDraft = null;
       state.error = "";
       state.notice = "";
       renderLogin();
+    } else if (action === "open-settings") {
+      state.view = "ajustes";
+      state.notice = "";
+      state.error = "";
+      state.settingsDraft = structuredClone(state.companies[0]?.ajustes || {});
+      render();
     } else if (action === "open-company") {
       state.view = "empresa";
       state.selectedCompanyId = button.dataset.id;
@@ -804,6 +932,24 @@ app.addEventListener("click", async (event) => {
     fillAccountSelect();
   }
 });
+
+async function saveSettings() {
+  const company = state.companies[0];
+  const payload = { ...(state.settingsDraft || {}) };
+  for (const input of document.querySelectorAll("[data-setting]")) {
+    payload[input.dataset.setting] = input.value;
+  }
+  state.settingsDraft = payload;
+  await api(`/api/empresas/${company.id}/ajustes`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  await load();
+  state.settingsDraft = structuredClone(state.companies[0]?.ajustes || {});
+  state.notice = "Ajustes guardados.";
+  state.view = "ajustes";
+  render();
+}
 
 async function saveCompany() {
   const payload = {};

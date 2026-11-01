@@ -7,7 +7,11 @@ import { createStore } from "./src/store.js";
 import { AGENT_TYPE, CHANNEL_LABELS, CHANNELS, TONE_BY_CHANNEL } from "./src/tones.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataPath = process.env.PULSE_DATA || path.join(__dirname, "data", "pulse.json");
+const dataPath =
+  process.env.PULSE_DATA ||
+  (process.env.VERCEL
+    ? path.join("/tmp", "jokma-pulse", "pulse.json")
+    : path.join(__dirname, "data", "pulse.json"));
 const store = createStore(dataPath);
 const app = express();
 
@@ -186,8 +190,12 @@ app.post("/api/mensajes/:id/respuesta", requireSession, (req, res) => {
 
 app.use(express.static(path.join(__dirname, "public")));
 
-const port = Number(process.env.PORT) || 4317;
-const host = process.env.HOST || "0.0.0.0";
-app.listen(port, host, () => {
-  console.log(`Jokma Pulse en http://127.0.0.1:${port}`);
-});
+export default app;
+
+if (!process.env.VERCEL) {
+  const port = Number(process.env.PORT) || 4317;
+  const host = process.env.HOST || "0.0.0.0";
+  app.listen(port, host, () => {
+    console.log(`Jokma Pulse en http://127.0.0.1:${port}`);
+  });
+}

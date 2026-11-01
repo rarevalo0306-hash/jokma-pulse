@@ -38,12 +38,18 @@ export function verifySession(token) {
   return companyId;
 }
 
+function cookieFlags() {
+  const secure = process.env.VERCEL ? "; Secure" : "";
+  return `HttpOnly; SameSite=Lax; Path=/; Max-Age=${WEEK_SECONDS}${secure}`;
+}
+
 export function sessionCookie(companyId) {
-  return `${COOKIE}=${createSession(companyId)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${WEEK_SECONDS}`;
+  return `${COOKIE}=${createSession(companyId)}; ${cookieFlags()}`;
 }
 
 export function clearSessionCookie() {
-  return `${COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+  const secure = process.env.VERCEL ? "; Secure" : "";
+  return `${COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`;
 }
 
 export function readSessionCookie(header) {

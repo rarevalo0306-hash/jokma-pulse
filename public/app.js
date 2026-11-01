@@ -90,6 +90,10 @@ function isDarkTheme() {
   return document.documentElement.dataset.theme === "dark";
 }
 
+function brandLogo() {
+  return `<span class="logo-lockup"><img class="logo logo-on-light" src="/jokma-logo.svg?v=20261101-brand" alt="" /><img class="logo logo-on-dark" src="/jokma-logo-on-dark.svg?v=20261101-brand" alt="" /></span>`;
+}
+
 function themeButton() {
   const dark = isDarkTheme();
   return `<button type="button" class="ghost theme-toggle" data-action="toggle-theme" data-testid="theme-toggle" aria-pressed="${dark ? "true" : "false"}" aria-label="${dark ? "Usar tema claro" : "Usar tema oscuro"}">${dark ? "Tema claro" : "Tema oscuro"}</button>`;
@@ -140,11 +144,7 @@ function sidebar() {
   const company = state.companies[0];
   return `<aside class="sidebar">
     <div class="brand">
-      <div class="mark" aria-hidden="true">P</div>
-      <div>
-        <h1>Jokma Pulse</h1>
-        <p>Por cuenta y canal</p>
-      </div>
+      <h1>${brandLogo()}<span class="sr-only">JOKMA Pulse</span></h1>
     </div>
     <nav class="nav-stack" aria-label="Secciones">
       <button type="button" class="nav-button" data-action="nav-inbox" data-testid="nav-inbox" aria-current="${state.view === "bandeja" ? "page" : "false"}">Bandeja</button>
@@ -624,7 +624,7 @@ function renderInboxSkeleton() {
   app.dataset.testid = "app-ready";
   app.innerHTML = `<div class="shell" data-testid="inbox-skeleton" aria-busy="true">
     <aside class="sidebar">
-      <div class="brand"><div class="mark" aria-hidden="true">P</div><div><h1>Jokma Pulse</h1><p>Por cuenta y canal</p></div></div>
+      <div class="brand"><h1>${brandLogo()}<span class="sr-only">JOKMA Pulse</span></h1></div>
     </aside>
     <main class="main" id="contenido">
       <p class="sr-only">Cargando la bandeja.</p>
@@ -656,13 +656,14 @@ function renderLogin(message = "") {
   const invalid = message ? ` aria-invalid="true"` : "";
   app.innerHTML = `<main class="gate" id="contenido">
     <a class="skip" href="#login-user">Saltar al acceso</a>
-    <section class="gate-story">
-      <p class="kicker">Atención por canal</p>
-      <h1>Jokma<br>Pulse</h1>
-      <p class="lede">Cada empresa entra a su ficha, sus agentes y su bandeja. La respuesta de cada cuenta usa solo esa ficha.</p>
-      ${themeButton()}
-    </section>
-    <section class="gate-panel">
+    <div class="gate-frame">
+      <header class="gate-story">
+        <h1>${brandLogo()}<span class="sr-only">JOKMA</span></h1>
+        <p class="lema">Un espacio para tus objetivos.</p>
+        <p class="lede">Pulse reúne la ficha, los agentes y la bandeja de cada empresa. Cada respuesta usa solo la ficha de esa cuenta.</p>
+        ${themeButton()}
+      </header>
+      <section class="gate-panel">
         <form class="login-card" data-action="login" data-testid="login-form" aria-describedby="login-error">
           <h2 id="login-title">Entra con tu empresa</h2>
           <label for="login-user">Usuario<input id="login-user" data-testid="login-user" autocomplete="username" aria-describedby="login-error"${invalid} /></label>
@@ -681,7 +682,8 @@ function renderLogin(message = "") {
             <p>usuario <code>arce</code> · clave <code>arce123</code></p>
           </div>
         </aside>
-    </section>
+      </section>
+    </div>
   </main>`;
 }
 

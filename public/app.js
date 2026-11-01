@@ -90,8 +90,8 @@ function isDarkTheme() {
   return document.documentElement.dataset.theme === "dark";
 }
 
-function brandLogo() {
-  return `<span class="logo-lockup"><img class="logo logo-on-light" src="/jokma-logo.svg?v=20261101-brand" alt="" /><img class="logo logo-on-dark" src="/jokma-logo-on-dark.svg?v=20261101-brand" alt="" /></span>`;
+function brandLockup() {
+  return `<span class="logo-lockup"><img class="logo logo-on-light" src="/jokma-logo.svg?v=20261101-pulse" alt="" /><img class="logo logo-on-dark" src="/jokma-logo-on-dark.svg?v=20261101-pulse" alt="" /></span><span class="product-name">Jokma Pulse</span>`;
 }
 
 function themeButton() {
@@ -144,7 +144,7 @@ function sidebar() {
   const company = state.companies[0];
   return `<aside class="sidebar">
     <div class="brand">
-      <h1>${brandLogo()}<span class="sr-only">JOKMA Pulse</span></h1>
+      <h1>${brandLockup()}</h1>
     </div>
     <nav class="nav-stack" aria-label="Secciones">
       <button type="button" class="nav-button" data-action="nav-inbox" data-testid="nav-inbox" aria-current="${state.view === "bandeja" ? "page" : "false"}">Bandeja</button>
@@ -624,7 +624,7 @@ function renderInboxSkeleton() {
   app.dataset.testid = "app-ready";
   app.innerHTML = `<div class="shell" data-testid="inbox-skeleton" aria-busy="true">
     <aside class="sidebar">
-      <div class="brand"><h1>${brandLogo()}<span class="sr-only">JOKMA Pulse</span></h1></div>
+      <div class="brand"><h1>${brandLockup()}</h1></div>
     </aside>
     <main class="main" id="contenido">
       <p class="sr-only">Cargando la bandeja.</p>
@@ -658,7 +658,7 @@ function renderLogin(message = "") {
     <a class="skip" href="#login-user">Saltar al acceso</a>
     <div class="gate-frame">
       <header class="gate-story">
-        <h1>${brandLogo()}<span class="sr-only">JOKMA</span></h1>
+        <h1>${brandLockup()}</h1>
         <p class="lema">Un espacio para tus objetivos.</p>
         <p class="lede">Pulse reúne la ficha, los agentes y la bandeja de cada empresa. Cada respuesta usa solo la ficha de esa cuenta.</p>
         ${themeButton()}

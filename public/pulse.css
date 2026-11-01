@@ -191,7 +191,29 @@ code {
 }
 
 .brand { display: flex; align-items: center; min-width: 0; }
-.brand h1 { line-height: 0; }
+.brand h1,
+.gate-story h1,
+.boot-brand {
+  display: grid;
+  justify-items: start;
+  gap: var(--s1);
+  margin: 0;
+  line-height: normal;
+}
+
+.product-name {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  color: var(--ink);
+}
+
+.gate-story .product-name,
+.boot-brand .product-name {
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+}
 .mark { display: none; }
 
 .nav-stack, .nav-footer { display: flex; flex-wrap: wrap; gap: var(--s1); }

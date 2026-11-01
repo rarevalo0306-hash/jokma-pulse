@@ -91,8 +91,8 @@ function isDarkTheme() {
 }
 
 function pulseMark() {
-  const line = `pathLength="100" d="M2 18 H16 L24 18 L32 6 L40 26 L46 18 H62" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"`;
-  return `<svg class="pulse-mark" viewBox="0 0 64 32" aria-hidden="true" focusable="false"><path class="pulse-line" ${line}/><path class="pulse-spark" ${line}/></svg>`;
+  const pen = `fill="none" stroke="#23D8BD" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" pathLength="1"`;
+  return `<svg class="pulse-mark" viewBox="0 0 120 36" aria-hidden="true" focusable="false"><path class="beat beat-lub" ${pen} d="M2 20 H24 L30 24 L38 6 L46 30 L52 20"/><path class="beat beat-dub" ${pen} d="M52 20 H60 C68 20 72 13 80 13 C88 13 92 20 98 20"/><path class="beat beat-rest" ${pen} d="M98 20 H118"/></svg>`;
 }
 
 function brandLockup() {

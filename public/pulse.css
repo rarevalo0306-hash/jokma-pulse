@@ -109,18 +109,23 @@ h1, h2, h3, p { margin: 0; }
 }
 .pulse-mark {
   display: block;
-  width: calc(var(--logo-h) * 0.92);
-  height: calc(var(--logo-h) * 0.46);
-  color: var(--verde);
+  width: calc(var(--logo-h) * 1.35);
+  height: calc(var(--logo-h) * 0.42);
   overflow: visible;
-  transform-origin: center;
-  transform: translateY(calc(var(--logo-h) * 0.2));
-  animation: pulse-lubdub 1.7s ease-in-out infinite;
+  transform: translateY(calc(var(--logo-h) * 0.16));
+  animation: heartbeat-glow 3.6s ease-in-out infinite;
 }
-.pulse-spark {
-  stroke-dasharray: 18 82;
-  animation: pulse-run 1.7s linear infinite;
+.beat {
+  fill: none;
+  stroke: #23d8bd;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
 }
+.beat-lub { animation: heartbeat-lub 3.6s linear infinite; }
+.beat-dub { animation: heartbeat-dub 3.6s linear infinite; }
+.beat-rest { animation: heartbeat-rest 3.6s linear infinite; }
 .gate .lockup { --logo-h: clamp(34px, 9.2vw, 48px); }
 
 .gate {
@@ -512,16 +517,34 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @keyframes spin { to { transform: rotate(360deg); } }
-@keyframes pulse-lubdub {
-  0%, 64%, 100% { transform: translateY(calc(var(--logo-h) * 0.2)) scale(1); }
-  8% { transform: translateY(calc(var(--logo-h) * 0.2)) scale(1.12); }
-  16% { transform: translateY(calc(var(--logo-h) * 0.2)) scale(1); }
-  28% { transform: translateY(calc(var(--logo-h) * 0.2)) scale(1.2); }
-  44% { transform: translateY(calc(var(--logo-h) * 0.2)) scale(1); }
+@keyframes heartbeat-lub {
+  0%, 10% { stroke-dashoffset: 1; opacity: 0; }
+  14% { stroke-dashoffset: 1; opacity: 1; }
+  30% { stroke-dashoffset: 0; opacity: 1; }
+  78% { stroke-dashoffset: 0; opacity: 1; }
+  92%, 100% { stroke-dashoffset: 1; opacity: 0; }
 }
-@keyframes pulse-run {
-  from { stroke-dashoffset: 100; }
-  to { stroke-dashoffset: 0; }
+@keyframes heartbeat-dub {
+  0%, 30% { stroke-dashoffset: 1; opacity: 0; }
+  34% { stroke-dashoffset: 1; opacity: 1; }
+  48% { stroke-dashoffset: 0; opacity: 1; }
+  78% { stroke-dashoffset: 0; opacity: 1; }
+  92%, 100% { stroke-dashoffset: 1; opacity: 0; }
+}
+@keyframes heartbeat-rest {
+  0%, 48% { stroke-dashoffset: 1; opacity: 0; }
+  52% { stroke-dashoffset: 1; opacity: 1; }
+  64% { stroke-dashoffset: 0; opacity: 1; }
+  78% { stroke-dashoffset: 0; opacity: 1; }
+  92%, 100% { stroke-dashoffset: 1; opacity: 0; }
+}
+@keyframes heartbeat-glow {
+  0%, 12% { filter: drop-shadow(0 0 0 rgba(35, 216, 189, 0)); }
+  28% { filter: drop-shadow(0 0 6px rgba(35, 216, 189, 0.95)); }
+  36% { filter: drop-shadow(0 0 1px rgba(35, 216, 189, 0.2)); }
+  46% { filter: drop-shadow(0 0 4px rgba(35, 216, 189, 0.7)); }
+  62%, 78% { filter: drop-shadow(0 0 2px rgba(35, 216, 189, 0.35)); }
+  94%, 100% { filter: drop-shadow(0 0 0 rgba(35, 216, 189, 0)); }
 }
 
 @media (min-width: 900px) {
@@ -560,5 +583,14 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+  }
+  .pulse-mark,
+  .beat {
+    animation: none !important;
+  }
+  .pulse-mark { filter: none !important; }
+  .beat {
+    stroke-dashoffset: 0 !important;
+    opacity: 1 !important;
   }
 }

@@ -654,21 +654,15 @@ function renderLogin(message = "") {
   app.dataset.ready = "true";
   app.dataset.testid = "app-ready";
   const invalid = message ? ` aria-invalid="true"` : "";
-  app.innerHTML = `<main class="login-screen" id="contenido">
+  app.innerHTML = `<main class="gate" id="contenido">
     <a class="skip" href="#login-user">Saltar al acceso</a>
-    <div class="login-layout">
-      <section class="login-intro">
-        <div class="brand">
-          <div class="mark" aria-hidden="true">P</div>
-          <div>
-            <p class="eyebrow">Atención por canal</p>
-            <h1>Jokma Pulse</h1>
-          </div>
-        </div>
-        <p class="lede">Cada empresa entra a su ficha, sus agentes y su bandeja. La respuesta de cada cuenta usa solo esa ficha.</p>
-        ${themeButton()}
-      </section>
-      <div class="login-panel">
+    <section class="gate-story">
+      <p class="kicker">Atención por canal</p>
+      <h1>Jokma<br>Pulse</h1>
+      <p class="lede">Cada empresa entra a su ficha, sus agentes y su bandeja. La respuesta de cada cuenta usa solo esa ficha.</p>
+      ${themeButton()}
+    </section>
+    <section class="gate-panel">
         <form class="login-card" data-action="login" data-testid="login-form" aria-describedby="login-error">
           <h2 id="login-title">Entra con tu empresa</h2>
           <label for="login-user">Usuario<input id="login-user" data-testid="login-user" autocomplete="username" aria-describedby="login-error"${invalid} /></label>
@@ -687,8 +681,7 @@ function renderLogin(message = "") {
             <p>usuario <code>arce</code> · clave <code>arce123</code></p>
           </div>
         </aside>
-      </div>
-    </div>
+    </section>
   </main>`;
 }
 

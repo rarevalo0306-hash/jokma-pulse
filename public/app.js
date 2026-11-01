@@ -90,8 +90,12 @@ function isDarkTheme() {
   return document.documentElement.dataset.theme === "dark";
 }
 
+function pulseMark() {
+  return `<svg class="pulse-mark" viewBox="0 0 64 32" aria-hidden="true" focusable="false"><path pathLength="100" d="M2 18 H16 L24 18 L32 6 L40 26 L46 18 H62" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
 function brandLockup() {
-  return `<span class="logo-lockup"><img class="logo logo-on-light" src="/jokma-logo.svg?v=20261101-word" alt="" /><img class="logo logo-on-dark" src="/jokma-logo-on-dark.svg?v=20261101-word" alt="" /></span><span class="sr-only">Jokma </span><span class="pulse-word">Pulse</span>`;
+  return `<span class="logo-lockup"><img class="logo logo-on-light" src="/jokma-logo.svg?v=20261101-gap" alt="" /><img class="logo logo-on-dark" src="/jokma-logo-on-dark.svg?v=20261101-gap" alt="" /></span><span class="pulse-name"><span class="sr-only">Jokma </span><span class="pulse-word">Pulse</span>${pulseMark()}</span>`;
 }
 
 function themeButton() {

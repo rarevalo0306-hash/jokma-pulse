@@ -519,7 +519,7 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .message-button[aria-current="true"] {
   box-shadow: inset 3px 0 0 var(--verde);
   padding-left: var(--s2);
-  background: color-mix(in srgb, var(--verde) 18%, transparent);
+  background: color-mix(in srgb, var(--verde) 12%, transparent);
 }
 
 .message-preview {

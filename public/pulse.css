@@ -79,11 +79,31 @@ h1, h2, h3, p { margin: 0; }
 }
 .skip:focus { transform: none; }
 
+.lockup {
+  --logo-h: 40px;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: calc(var(--logo-h) * 0.044);
+  margin: 0;
+  white-space: nowrap;
+  line-height: 0;
+}
 .logo-lockup { display: block; line-height: 0; }
-.logo { display: block; height: 40px; width: auto; }
+.logo { display: block; height: var(--logo-h); width: auto; }
 .logo-on-dark { display: none; }
 :root[data-theme="dark"] .logo-on-light { display: none; }
 :root[data-theme="dark"] .logo-on-dark { display: block; }
+.pulse-word {
+  color: var(--ink);
+  font-family: Inter, "Segoe UI", sans-serif;
+  font-weight: 700;
+  font-size: calc(var(--logo-h) * 1.347);
+  line-height: 1;
+  letter-spacing: -0.086em;
+  margin-left: calc(var(--logo-h) * -0.08);
+  transform: translateY(calc(var(--logo-h) * 0.2));
+}
+.gate .lockup { --logo-h: clamp(36px, 11vw, 48px); }
 
 .gate {
   min-height: 100vh;
@@ -104,8 +124,6 @@ h1, h2, h3, p { margin: 0; }
   justify-items: start;
   gap: var(--s2);
 }
-
-.gate .logo { height: 48px; }
 
 .lema {
   max-width: 168px;
@@ -191,29 +209,6 @@ code {
 }
 
 .brand { display: flex; align-items: center; min-width: 0; }
-.brand h1,
-.gate-story h1,
-.boot-brand {
-  display: grid;
-  justify-items: start;
-  gap: var(--s1);
-  margin: 0;
-  line-height: normal;
-}
-
-.product-name {
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 24px;
-  color: var(--ink);
-}
-
-.gate-story .product-name,
-.boot-brand .product-name {
-  font-size: 28px;
-  line-height: 36px;
-  font-weight: 600;
-}
 .mark { display: none; }
 
 .nav-stack, .nav-footer { display: flex; flex-wrap: wrap; gap: var(--s1); }
@@ -501,7 +496,8 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (min-width: 900px) {
-  .shell { grid-template-columns: 280px minmax(0, 1fr); }
+  .shell { grid-template-columns: 320px minmax(0, 1fr); }
+  .brand .lockup { --logo-h: 32px; }
   .sidebar {
     position: sticky;
     top: 0;

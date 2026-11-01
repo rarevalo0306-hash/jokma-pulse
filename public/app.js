@@ -15,6 +15,14 @@ const state = {
   notice: "",
 };
 
+const NETWORKS = [
+  { id: "google", label: "Google", channels: ["google_reviews"] },
+  { id: "instagram", label: "Instagram", channels: ["instagram_dm", "instagram_comment"] },
+  { id: "facebook", label: "Facebook", channels: ["facebook_messenger", "facebook_comment"] },
+  { id: "x", label: "X", channels: ["x_post", "x_dm"] },
+  { id: "email", label: "Correo", channels: ["email"] },
+];
+
 const FICHA_FIELDS = [
   ["nombre", "Nombre"],
   ["industria", "Industria"],
@@ -36,6 +44,29 @@ function escapeHtml(value) {
 
 function channelLabel(id) {
   return state.canales.find((item) => item.id === id)?.etiqueta || id;
+}
+
+function networkById(id) {
+  return NETWORKS.find((item) => item.id === id) || NETWORKS[0];
+}
+
+function networkForChannel(canal) {
+  return NETWORKS.find((item) => item.channels.includes(canal)) || NETWORKS[0];
+}
+
+function messagesForNetwork(network) {
+  const channels = new Set(network.channels);
+  return state.messages
+    .filter((message) => channels.has(message.canal))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function ensureChannelSelection() {
+  if (!NETWORKS.some((item) => item.id === state.filterChannel)) state.filterChannel = "google";
+  const visible = messagesForNetwork(networkById(state.filterChannel));
+  if (!visible.some((item) => item.id === state.selectedMessageId)) {
+    state.selectedMessageId = visible[0]?.id || null;
+  }
 }
 
 function companyById(id) {
@@ -142,30 +173,18 @@ function skeletonLines(count) {
 function render() {
   app.dataset.ready = "true";
   app.dataset.testid = "app-ready";
-  app.innerHTML = `<div class="shell"><a class="skip" href="#contenido">Saltar al contenido</a>${sidebar()}${main()}</div>`;
+  const body = state.view === "empresa" || state.view === "nueva" ? companyView() : inboxView();
+  app.innerHTML = `<div class="shell"><a class="skip" href="#contenido">Saltar al contenido</a>${appBar()}<main class="main" id="contenido" tabindex="-1">${body}</main></div>`;
 }
 
-function sidebar() {
-  const company = state.companies[0];
-  return `<aside class="sidebar">
-    <div class="brand">
-      <h1 class="lockup">${brandLockup()}</h1>
-    </div>
-    <nav class="nav-stack" aria-label="Secciones">
-      <button type="button" class="nav-button" data-action="nav-inbox" data-testid="nav-inbox" aria-current="${state.view === "bandeja" ? "page" : "false"}">Bandeja</button>
-      ${company ? `<button type="button" class="company-button" data-action="open-company" data-id="${escapeHtml(company.id)}" data-testid="company-${escapeHtml(company.id)}" aria-current="${state.view === "empresa" ? "true" : "false"}"><strong data-testid="session-company">${escapeHtml(company.nombre)}</strong><small>${escapeHtml(company.industria)} · ${state.accounts.length} agentes</small></button>` : ""}
-    </nav>
+function appBar() {
+  return `<header class="app-bar">
+    <div class="brand"><h1 class="lockup">${brandLockup()}</h1></div>
     <div class="nav-footer">
       ${themeButton()}
       <button type="button" class="nav-button" data-action="logout" data-testid="logout">Cerrar sesión</button>
     </div>
-  </aside>`;
-}
-
-function main() {
-  const body =
-    state.view === "empresa" || state.view === "nueva" ? companyView() : inboxView();
-  return `<main class="main" id="contenido" tabindex="-1">${body}</main>`;
+  </header>`;
 }
 
 function companyView() {
@@ -187,6 +206,7 @@ function companyView() {
         <p class="eyebrow">Ficha y agentes</p>
         <h2>${escapeHtml(title)}</h2>
       </div>
+      <button type="button" class="ghost" data-action="nav-inbox" data-testid="nav-inbox">Volver a los canales</button>
     </header>
     ${banner()}
     <section class="panel">
@@ -249,55 +269,65 @@ function accountsSection(company) {
 }
 
 function inboxView() {
-  const channelOptions = [`<option value="">Todos los canales</option>`]
-    .concat(
-      state.canales.map(
-        (item) =>
-          `<option value="${item.id}" ${state.filterChannel === item.id ? "selected" : ""}>${escapeHtml(item.etiqueta)}</option>`,
-      ),
-    )
-    .join("");
-  const messages = state.messages
-    .slice()
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
-    .filter((message) => !state.filterCompany || message.empresaId === state.filterCompany)
-    .filter((message) => !state.filterChannel || message.canal === state.filterChannel);
-
+  ensureChannelSelection();
+  const company = state.companies[0];
+  const network = networkById(state.filterChannel);
+  const messages = messagesForNetwork(network);
   const rows = messages
     .map((message) => {
-      const company = companyById(message.empresaId);
       const account = accountById(message.cuentaId);
       return `<li><button type="button" class="message-button" data-action="open-message" data-id="${escapeHtml(message.id)}" data-testid="message-${escapeHtml(message.id)}" aria-current="${state.selectedMessageId === message.id ? "true" : "false"}">
         <div class="message-top">
           <strong>${escapeHtml(message.nombreCliente)}</strong>
           <span class="pill" data-channel="${escapeHtml(message.canal)}">${escapeHtml(channelLabel(message.canal))}</span>
         </div>
-        <span class="message-meta">${escapeHtml(company?.nombre || "Empresa")} · ${escapeHtml(account?.agente.nombre || "Agente")}${message.muestra ? ` · ${escapeHtml(message.muestra)}` : ""}</span>
+        <span class="message-meta">${escapeHtml(account?.agente.nombre || "Agente")} · ${escapeHtml(account?.cuenta || "")}</span>
         ${message.calificacion ? `<div class="stars" aria-label="${message.calificacion} de 5 estrellas">${stars(message.calificacion)}</div>` : ""}
         <p class="message-preview">${escapeHtml(message.texto)}</p>
       </button></li>`;
     })
     .join("");
+  const chips = NETWORKS.map((item) => {
+    const count = messagesForNetwork(item).length;
+    const current = item.id === network.id;
+    return `<button type="button" class="channel-chip" data-action="select-network" data-network="${item.id}" aria-current="${current ? "true" : "false"}" aria-label="${item.label}, ${count} ${count === 1 ? "mensaje" : "mensajes"}">
+      <span>${item.label}</span>
+      <span class="channel-count">${count}</span>
+    </button>`;
+  }).join("");
 
-  return `<header class="topbar">
+  return `<section class="company-head">
       <div>
-        <p class="eyebrow">Bandeja</p>
-        <h2>Mensajes</h2>
-        <p class="hint">Cada respuesta sale del agente de esa cuenta.</p>
+        <p class="eyebrow">Empresa</p>
+        <h2 data-testid="session-company">${escapeHtml(company?.nombre || "Empresa")}</h2>
+        <p class="hint">${escapeHtml(company?.industria || "")}</p>
+        <p class="lede">Pulse administra las redes de esta empresa.</p>
       </div>
-      <label class="filter-field" for="filter-channel">Canal
-        <select id="filter-channel" data-testid="filter-channel" data-filter="channel">${channelOptions}</select>
-      </label>
-    </header>
+      <div class="actions">
+        <button type="button" class="nav-button" data-action="nav-inbox" data-testid="nav-inbox" aria-current="page">Mensajes</button>
+        ${company ? `<button type="button" class="ghost company-button" data-action="open-company" data-id="${escapeHtml(company.id)}" data-testid="company-${escapeHtml(company.id)}">Ficha</button>` : ""}
+      </div>
+    </section>
+    <nav class="channel-row" aria-label="Canales de la empresa" data-testid="filter-channel">${chips}</nav>
     ${banner()}
     <div class="inbox">
-      <section class="inbox-column" aria-label="Lista de mensajes">
+      <section class="inbox-column" aria-label="Mensajes de ${escapeHtml(network.label)}">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Canal</p>
+            <h2>${escapeHtml(network.label)}</h2>
+            <p class="hint">${messages.length} ${messages.length === 1 ? "mensaje" : "mensajes"} de este canal.</p>
+          </div>
+        </header>
         ${composer()}
         <ul class="message-list">
-          ${rows || `<li class="empty-state" data-testid="empty-inbox"><h3>Sin mensajes</h3><p>No hay mensajes con ese filtro.</p></li>`}
+          ${rows || `<li class="empty-state" data-testid="empty-inbox"><h3>Sin mensajes</h3><p>Esta red no tiene mensajes.</p></li>`}
         </ul>
       </section>
-      <div class="inbox-detail">${messageDetail()}</div>
+      <div class="inbox-detail">
+        <p class="eyebrow">Respuesta</p>
+        ${messageDetail()}
+      </div>
     </div>`;
 }
 
@@ -323,7 +353,7 @@ function composer() {
 function messageDetail() {
   const message = state.messages.find((item) => item.id === state.selectedMessageId);
   if (!message) {
-    return `<section class="profile empty-state" data-testid="empty-detail"><h3>Nada seleccionado</h3><p>Abre un mensaje para ver el agente que lo responde y generar el texto final.</p></section>`;
+    return `<section class="profile empty-state" data-testid="empty-detail"><h3>Nada seleccionado</h3><p>Elige un mensaje de este canal para escribir la respuesta.</p></section>`;
   }
   const account = accountById(message.cuentaId);
   const company = companyById(message.empresaId);
@@ -384,7 +414,8 @@ function fillAccountSelect() {
   const ratingWrap = document.querySelector("#rating-wrap");
   if (!accountSelect) return;
   const empresaId = state.companies[0]?.id;
-  const accounts = state.accounts.filter((item) => item.empresaId === empresaId);
+  const channels = new Set(networkById(state.filterChannel).channels);
+  const accounts = state.accounts.filter((item) => item.empresaId === empresaId && channels.has(item.canal));
   accountSelect.innerHTML = accounts
     .map(
       (account) =>
@@ -495,6 +526,12 @@ app.addEventListener("click", async (event) => {
       state.notice = "Perfil guardado.";
       await load();
       render();
+    } else if (action === "select-network") {
+      state.filterChannel = button.dataset.network;
+      state.view = "bandeja";
+      ensureChannelSelection();
+      render();
+      fillAccountSelect();
     } else if (action === "open-message") {
       state.selectedMessageId = button.dataset.id;
       state.view = "bandeja";
@@ -619,6 +656,7 @@ async function createMessage() {
   });
   await load();
   state.selectedMessageId = created.id;
+  state.filterChannel = networkForChannel(created.canal || account?.canal).id;
   state.view = "bandeja";
   render();
   fillAccountSelect();
@@ -628,12 +666,11 @@ function renderInboxSkeleton() {
   app.dataset.ready = "true";
   app.dataset.testid = "app-ready";
   app.innerHTML = `<div class="shell" data-testid="inbox-skeleton" aria-busy="true">
-    <aside class="sidebar">
-      <div class="brand"><h1 class="lockup">${brandLockup()}</h1></div>
-    </aside>
+    ${appBar()}
     <main class="main" id="contenido">
       <p class="sr-only">Cargando la bandeja.</p>
       <div class="skeleton-stack" aria-hidden="true"><span class="skeleton short"></span><span class="skeleton title"></span></div>
+      <div class="channel-row">${skeletonLines(5)}</div>
       <div class="inbox">
         <div class="skeleton-card">${skeletonLines(4)}</div>
         <div class="skeleton-card"><span class="skeleton title"></span>${skeletonLines(2)}<span class="skeleton tall"></span></div>
@@ -716,6 +753,8 @@ async function boot() {
     clearTimeout(slow);
     state.selectedCompanyId = state.companies[0]?.id || null;
     state.view = "bandeja";
+    if (!state.filterChannel) state.filterChannel = "google";
+    ensureChannelSelection();
     render();
     fillAccountSelect();
   } catch (error) {

@@ -215,10 +215,67 @@ code {
 
 .shell {
   min-height: 100vh;
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
 }
+
+.app-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line);
+}
+.app-bar .lockup { --logo-h: 32px; }
+.app-bar .nav-footer { margin-left: 0; }
+
+.company-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--s2);
+}
+.company-head h2 {
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+}
+.company-head .lede { max-width: 42ch; }
+
+.channel-row {
+  display: flex;
+  gap: var(--s1);
+  overflow-x: auto;
+  padding-bottom: var(--s1);
+}
+.channel-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  min-height: 48px;
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.channel-chip[aria-current="true"] {
+  background: var(--verde);
+  border-color: var(--verde);
+  color: var(--oscuro);
+}
+.channel-count {
+  min-width: 1.5rem;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+}
+.inbox-detail > .eyebrow { margin-bottom: var(--s1); }
 
 .sidebar {
   display: flex;
@@ -548,7 +605,7 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 }
 
 @media (min-width: 900px) {
-  .shell { grid-template-columns: 360px minmax(0, 1fr); }
+  .shell { display: flex; }
   .brand .lockup { --logo-h: 32px; }
   .sidebar {
     position: sticky;

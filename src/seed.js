@@ -229,6 +229,28 @@ export function buildSeed() {
       muestra: "Correo formal",
       createdAt: "2026-10-31T15:40:00.000Z",
     }),
+    message({
+      id: "msg-lumen-sofia-email",
+      cuentaId: "ac-lumen-email",
+      empresaId: "co-lumen",
+      canal: "email",
+      nombreCliente: "Sofía Herrera",
+      texto: "También les escribo por correo para confirmar si abren este sábado.",
+      calificacion: null,
+      muestra: "Misma persona, otra red",
+      createdAt: "2026-10-31T15:42:00.000Z",
+    }),
+    message({
+      id: "msg-arce-luis-review",
+      cuentaId: "ac-arce-reviews",
+      empresaId: "co-arce",
+      canal: "google_reviews",
+      nombreCliente: "Luis Ortega",
+      texto: "La limpieza fue cuidadosa y me explicaron cada paso.",
+      calificacion: 5,
+      muestra: "Misma persona, otra red",
+      createdAt: "2026-10-31T15:48:00.000Z",
+    }),
   ];
 
   return { companies, accounts, messages };

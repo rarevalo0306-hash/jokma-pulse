@@ -7,6 +7,7 @@ const state = {
   messages: [],
   canales: [],
   selectedCompanyId: null,
+  selectedPerson: null,
   selectedMessageId: null,
   draft: null,
   filterCompany: "",
@@ -14,6 +15,12 @@ const state = {
   error: "",
   notice: "",
 };
+
+let knownMessageIds = null;
+let pollTimer = null;
+let refreshing = false;
+let audioCtx = null;
+let arrivalNote = "";
 
 const NETWORKS = [
   { id: "google", label: "Google", channels: ["google_reviews"] },
@@ -54,18 +61,148 @@ function networkForChannel(canal) {
   return NETWORKS.find((item) => item.channels.includes(canal)) || NETWORKS[0];
 }
 
-function messagesForNetwork(network) {
-  const channels = new Set(network.channels);
-  return state.messages
-    .filter((message) => channels.has(message.canal))
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+function personKey(name) {
+  return String(name || "").trim().toLocaleLowerCase("es");
 }
 
-function ensureChannelSelection() {
-  if (!NETWORKS.some((item) => item.id === state.filterChannel)) state.filterChannel = "google";
-  const visible = messagesForNetwork(networkById(state.filterChannel));
-  if (!visible.some((item) => item.id === state.selectedMessageId)) {
-    state.selectedMessageId = visible[0]?.id || null;
+function companyMessages() {
+  const empresaId = state.companies[0]?.id;
+  return state.messages.filter((message) => !empresaId || message.empresaId === empresaId);
+}
+
+function matchesFilter(message) {
+  if (!state.filterChannel) return true;
+  return networkForChannel(message.canal).id === state.filterChannel;
+}
+
+function messagesForPerson(key) {
+  return companyMessages()
+    .filter((message) => personKey(message.nombreCliente) === key && matchesFilter(message))
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+}
+
+function people() {
+  const map = new Map();
+  for (const message of companyMessages()) {
+    const key = personKey(message.nombreCliente);
+    const entry = map.get(key) || { key, name: message.nombreCliente, last: null, lastAny: message };
+    if (String(message.createdAt) >= String(entry.lastAny.createdAt)) {
+      entry.lastAny = message;
+      entry.name = message.nombreCliente;
+    }
+    if (matchesFilter(message) && (!entry.last || String(message.createdAt) >= String(entry.last.createdAt))) {
+      entry.last = message;
+    }
+    map.set(key, entry);
+  }
+  let list = [...map.values()];
+  if (state.filterChannel) list = list.filter((person) => person.last || person.key === state.selectedPerson);
+  return list.sort((a, b) =>
+    String((b.last || b.lastAny).createdAt).localeCompare(String((a.last || a.lastAny).createdAt)),
+  );
+}
+
+function ensureSelection() {
+  const known = companyMessages().some((message) => personKey(message.nombreCliente) === state.selectedPerson);
+  if (!known) state.selectedPerson = people()[0]?.key || null;
+  const visible = state.selectedPerson ? messagesForPerson(state.selectedPerson) : [];
+  if (!visible.some((message) => message.id === state.selectedMessageId)) {
+    state.selectedMessageId = visible.at(-1)?.id || null;
+  }
+}
+
+function formatWhen(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function unlockAudio() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!audioCtx) audioCtx = new Ctx();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+
+function playDoublePing() {
+  try {
+    const ctx = unlockAudio();
+    if (!ctx) return;
+    const start = ctx.currentTime + 0.02;
+    for (const offset of [0, 0.17]) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, start + offset);
+      gain.gain.setValueAtTime(0.0001, start + offset);
+      gain.gain.exponentialRampToValueAtTime(0.06, start + offset + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.09);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start + offset);
+      osc.stop(start + offset + 0.1);
+    }
+  } catch {
+    /* El navegador puede bloquear el audio hasta el siguiente gesto. */
+  }
+}
+
+function noteArrivals(messages) {
+  const ids = new Set(messages.map((message) => message.id));
+  let arrived = false;
+  if (knownMessageIds) {
+    for (const id of ids) {
+      if (!knownMessageIds.has(id)) {
+        arrived = true;
+        break;
+      }
+    }
+  }
+  knownMessageIds = ids;
+  return arrived;
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(() => {
+    refreshMessages().catch(() => {});
+  }, 4000);
+}
+
+function stopPolling() {
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
+
+async function refreshMessages() {
+  if (refreshing || !document.querySelector("[data-testid='logout']")) return;
+  refreshing = true;
+  try {
+    const arrived = await load();
+    if (!arrived) return;
+    arrivalNote = "Nuevo mensaje.";
+    playDoublePing();
+    const active = document.activeElement;
+    const typing = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
+    if (!typing && state.view !== "login") {
+      ensureSelection();
+      render();
+      fillAccountSelect();
+    }
+  } catch (error) {
+    if (error.status === 401) {
+      stopPolling();
+      knownMessageIds = null;
+      renderLogin();
+    }
+  } finally {
+    refreshing = false;
   }
 }
 
@@ -110,6 +247,7 @@ async function load() {
   if (state.selectedMessageId && !state.messages.some((item) => item.id === state.selectedMessageId)) {
     state.selectedMessageId = null;
   }
+  return noteArrivals(state.messages);
 }
 
 function setDraftFromCompany(company) {
@@ -174,7 +312,7 @@ function render() {
   app.dataset.ready = "true";
   app.dataset.testid = "app-ready";
   const body = state.view === "empresa" || state.view === "nueva" ? companyView() : inboxView();
-  app.innerHTML = `<div class="shell"><a class="skip" href="#contenido">Saltar al contenido</a>${appBar()}<main class="main" id="contenido" tabindex="-1">${body}</main></div>`;
+  app.innerHTML = `<div class="shell"><a class="skip" href="#contenido">Saltar al contenido</a><p class="sr-only" aria-live="polite" data-testid="arrival-note">${escapeHtml(arrivalNote)}</p>${appBar()}<main class="main" id="contenido" tabindex="-1">${body}</main></div>`;
 }
 
 function appBar() {
@@ -206,7 +344,7 @@ function companyView() {
         <p class="eyebrow">Ficha y agentes</p>
         <h2>${escapeHtml(title)}</h2>
       </div>
-      <button type="button" class="ghost" data-action="nav-inbox" data-testid="nav-inbox">Volver a los canales</button>
+      <button type="button" class="ghost" data-action="nav-inbox" data-testid="nav-inbox">Volver a los mensajes</button>
     </header>
     ${banner()}
     <section class="panel">
@@ -269,65 +407,98 @@ function accountsSection(company) {
 }
 
 function inboxView() {
-  ensureChannelSelection();
+  ensureSelection();
   const company = state.companies[0];
-  const network = networkById(state.filterChannel);
-  const messages = messagesForNetwork(network);
-  const rows = messages
-    .map((message) => {
-      const account = accountById(message.cuentaId);
-      return `<li><button type="button" class="message-button" data-action="open-message" data-id="${escapeHtml(message.id)}" data-testid="message-${escapeHtml(message.id)}" aria-current="${state.selectedMessageId === message.id ? "true" : "false"}">
+  const list = people();
+  const person = list.find((item) => item.key === state.selectedPerson) || null;
+  const thread = person ? messagesForPerson(person.key) : [];
+  const filterLabel = state.filterChannel ? networkById(state.filterChannel).label : "";
+  const rows = list
+    .map((item) => {
+      const last = item.last;
+      const network = last ? networkForChannel(last.canal) : null;
+      const slug = item.key.replace(/\s+/g, "-");
+      return `<li><button type="button" class="message-button" data-action="open-person" data-person="${escapeHtml(item.key)}" data-testid="person-${escapeHtml(slug)}" aria-current="${state.selectedPerson === item.key ? "true" : "false"}">
         <div class="message-top">
-          <strong>${escapeHtml(message.nombreCliente)}</strong>
-          <span class="pill" data-channel="${escapeHtml(message.canal)}">${escapeHtml(channelLabel(message.canal))}</span>
+          <strong>${escapeHtml(item.name)}</strong>
+          ${network ? `<span class="pill" data-network="${escapeHtml(network.id)}">${escapeHtml(network.label)}</span>` : ""}
         </div>
-        <span class="message-meta">${escapeHtml(account?.agente.nombre || "Agente")} · ${escapeHtml(account?.cuenta || "")}</span>
-        ${message.calificacion ? `<div class="stars" aria-label="${message.calificacion} de 5 estrellas">${stars(message.calificacion)}</div>` : ""}
-        <p class="message-preview">${escapeHtml(message.texto)}</p>
+        <p class="message-preview">${escapeHtml(last ? last.texto : "Sin mensajes en esta red.")}</p>
       </button></li>`;
     })
     .join("");
   const chips = NETWORKS.map((item) => {
-    const count = messagesForNetwork(item).length;
-    const current = item.id === network.id;
-    return `<button type="button" class="channel-chip" data-action="select-network" data-network="${item.id}" aria-current="${current ? "true" : "false"}" aria-label="${item.label}, ${count} ${count === 1 ? "mensaje" : "mensajes"}">
+    const count = companyMessages().filter((message) => item.channels.includes(message.canal)).length;
+    const pressed = state.filterChannel === item.id;
+    return `<button type="button" class="channel-chip" data-action="select-network" data-network="${item.id}" aria-pressed="${pressed ? "true" : "false"}" aria-label="${item.label}, ${pressed ? "filtro activo" : "sin filtro"}, ${count} ${count === 1 ? "mensaje" : "mensajes"}">
       <span>${item.label}</span>
       <span class="channel-count">${count}</span>
     </button>`;
   }).join("");
+  const threadItems = thread
+    .map((message) => {
+      const network = networkForChannel(message.canal);
+      const selected = message.id === state.selectedMessageId;
+      const savedReply =
+        message.respuesta && !selected ? `<pre class="reply">${escapeHtml(message.respuesta)}</pre>` : "";
+      return `<li class="thread-item" data-testid="message-${escapeHtml(message.id)}" data-network="${escapeHtml(network.id)}" aria-current="${selected ? "true" : "false"}">
+        <button type="button" class="thread-select" data-action="open-message" data-id="${escapeHtml(message.id)}">
+          <span class="thread-meta">
+            <span class="pill">${escapeHtml(network.label)}</span>
+            <span class="meta">${escapeHtml(channelLabel(message.canal))}</span>
+            <time datetime="${escapeHtml(message.createdAt)}">${escapeHtml(formatWhen(message.createdAt))}</time>
+          </span>
+          ${message.calificacion ? `<span class="stars" aria-label="${message.calificacion} de 5 estrellas">${stars(message.calificacion)}</span>` : ""}
+          <span class="original"${selected ? ` data-testid="message-text-view"` : ""}>${escapeHtml(message.texto)}</span>
+        </button>
+        ${savedReply}
+        ${selected ? messageDetail() : ""}
+      </li>`;
+    })
+    .join("");
+  const conversation = person
+    ? `<header class="topbar">
+        <div>
+          <p class="eyebrow">Conversación</p>
+          <h2>${escapeHtml(person.name)}</h2>
+          <p class="hint">${filterLabel ? `Solo ${escapeHtml(filterLabel)}.` : "Todas las redes, en orden."}</p>
+        </div>
+      </header>
+      <ol class="thread" data-testid="conversation">
+        ${threadItems || `<li class="empty-state" data-testid="empty-detail"><h3>Sin mensajes en esta red</h3><p>Quita el filtro de ${escapeHtml(filterLabel)} para ver todas las redes de esta persona.</p></li>`}
+      </ol>`
+    : `<section class="profile empty-state" data-testid="empty-detail"><h3>Elige una persona</h3><p>Su conversación reúne Google, Instagram, Facebook, X y Correo.</p></section>`;
 
   return `<section class="company-head">
       <div>
         <p class="eyebrow">Empresa</p>
         <h2 data-testid="session-company">${escapeHtml(company?.nombre || "Empresa")}</h2>
         <p class="hint">${escapeHtml(company?.industria || "")}</p>
-        <p class="lede">Pulse administra las redes de esta empresa.</p>
+        <p class="lede">Una persona reúne todas sus redes. La fila de arriba filtra esa conversación.</p>
       </div>
       <div class="actions">
         <button type="button" class="nav-button" data-action="nav-inbox" data-testid="nav-inbox" aria-current="page">Mensajes</button>
         ${company ? `<button type="button" class="ghost company-button" data-action="open-company" data-id="${escapeHtml(company.id)}" data-testid="company-${escapeHtml(company.id)}">Ficha</button>` : ""}
       </div>
     </section>
-    <nav class="channel-row" aria-label="Canales de la empresa" data-testid="filter-channel">${chips}</nav>
+    <nav class="channel-row" aria-label="Filtrar por red" data-testid="filter-channel">${chips}</nav>
+    <p class="hint" data-testid="filter-status">${filterLabel ? `Filtro: ${escapeHtml(filterLabel)}.` : "Ninguna red seleccionada: se ven todas."}</p>
     ${banner()}
     <div class="inbox">
-      <section class="inbox-column" aria-label="Mensajes de ${escapeHtml(network.label)}">
+      <section class="inbox-column" aria-label="Personas">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Canal</p>
-            <h2>${escapeHtml(network.label)}</h2>
-            <p class="hint">${messages.length} ${messages.length === 1 ? "mensaje" : "mensajes"} de este canal.</p>
+            <p class="eyebrow">Personas</p>
+            <h2>Conversaciones</h2>
+            <p class="hint">${list.length} ${list.length === 1 ? "persona" : "personas"}.</p>
           </div>
         </header>
         ${composer()}
         <ul class="message-list">
-          ${rows || `<li class="empty-state" data-testid="empty-inbox"><h3>Sin mensajes</h3><p>Esta red no tiene mensajes.</p></li>`}
+          ${rows || `<li class="empty-state" data-testid="empty-inbox"><h3>Sin personas</h3><p>No hay mensajes en esta red.</p></li>`}
         </ul>
       </section>
-      <div class="inbox-detail">
-        <p class="eyebrow">Respuesta</p>
-        ${messageDetail()}
-      </div>
+      <section class="inbox-detail" aria-label="Conversación de la persona">${conversation}</section>
     </div>`;
 }
 
@@ -382,7 +553,6 @@ function messageDetail() {
       </div>
       <button type="button" class="tiny danger" data-action="delete-message" data-testid="delete-message">Eliminar</button>
     </div>
-    <p class="original" data-testid="message-text-view">${escapeHtml(message.texto)}</p>
     <section class="profile-block">
       <h3>Perfil que responde</h3>
       <p data-testid="agent-name">${escapeHtml(account?.agente.nombre || "")}</p>
@@ -414,16 +584,25 @@ function fillAccountSelect() {
   const ratingWrap = document.querySelector("#rating-wrap");
   if (!accountSelect) return;
   const empresaId = state.companies[0]?.id;
-  const channels = new Set(networkById(state.filterChannel).channels);
-  const accounts = state.accounts.filter((item) => item.empresaId === empresaId && channels.has(item.canal));
+  const channels = state.filterChannel ? new Set(networkById(state.filterChannel).channels) : null;
+  const accounts = state.accounts.filter(
+    (item) => item.empresaId === empresaId && (!channels || channels.has(item.canal)),
+  );
   accountSelect.innerHTML = accounts
     .map(
       (account) =>
         `<option value="${escapeHtml(account.id)}">${escapeHtml(account.agente.nombre)} · ${escapeHtml(channelLabel(account.canal))}</option>`,
     )
     .join("");
+  const selectedMessage = state.messages.find((item) => item.id === state.selectedMessageId);
+  if (selectedMessage && accounts.some((item) => item.id === selectedMessage.cuentaId)) {
+    accountSelect.value = selectedMessage.cuentaId;
+  }
   const selected = accountById(accountSelect.value);
   if (ratingWrap) ratingWrap.hidden = selected?.canal !== "google_reviews";
+  const nameInput = document.querySelector("#message-name");
+  const person = people().find((item) => item.key === state.selectedPerson);
+  if (nameInput && person && !nameInput.value) nameInput.value = person.name;
 }
 
 app.addEventListener("input", (event) => {
@@ -447,6 +626,7 @@ app.addEventListener("change", async (event) => {
 });
 
 app.addEventListener("submit", async (event) => {
+  unlockAudio();
   const form = event.target.closest("form");
   if (!form) return;
   event.preventDefault();
@@ -480,6 +660,7 @@ app.addEventListener("submit", async (event) => {
 });
 
 app.addEventListener("click", async (event) => {
+  unlockAudio();
   const button = event.target.closest("[data-action]");
   if (!button || button.closest("form")) return;
   try {
@@ -495,12 +676,17 @@ app.addEventListener("click", async (event) => {
       render();
       fillAccountSelect();
     } else if (action === "logout") {
+      stopPolling();
+      knownMessageIds = null;
+      arrivalNote = "";
       await api("/api/sesion", { method: "DELETE" });
       state.companies = [];
       state.accounts = [];
       state.messages = [];
       state.selectedCompanyId = null;
+      state.selectedPerson = null;
       state.selectedMessageId = null;
+      state.filterChannel = "";
       state.error = "";
       state.notice = "";
       renderLogin();
@@ -527,9 +713,17 @@ app.addEventListener("click", async (event) => {
       await load();
       render();
     } else if (action === "select-network") {
-      state.filterChannel = button.dataset.network;
+      const network = button.dataset.network;
+      state.filterChannel = state.filterChannel === network ? "" : network;
       state.view = "bandeja";
-      ensureChannelSelection();
+      ensureSelection();
+      render();
+      fillAccountSelect();
+    } else if (action === "open-person") {
+      state.selectedPerson = button.dataset.person;
+      state.selectedMessageId = null;
+      state.view = "bandeja";
+      ensureSelection();
       render();
       fillAccountSelect();
     } else if (action === "open-message") {
@@ -592,11 +786,15 @@ app.addEventListener("click", async (event) => {
     }
   } catch (error) {
     if (error.status === 401) {
+      stopPolling();
+      knownMessageIds = null;
       state.companies = [];
       state.accounts = [];
       state.messages = [];
       state.selectedCompanyId = null;
+      state.selectedPerson = null;
       state.selectedMessageId = null;
+      state.filterChannel = "";
       state.error = "";
       renderLogin();
       return;
@@ -642,11 +840,12 @@ async function createAccount() {
 async function createMessage() {
   const cuentaId = document.querySelector("#message-account").value;
   const account = accountById(cuentaId);
+  const nombreCliente = document.querySelector("#message-name").value;
   const created = await api("/api/mensajes", {
     method: "POST",
     body: JSON.stringify({
       cuentaId,
-      nombreCliente: document.querySelector("#message-name").value,
+      nombreCliente,
       texto: document.querySelector("#message-text").value,
       calificacion:
         account?.canal === "google_reviews"
@@ -654,12 +853,16 @@ async function createMessage() {
           : null,
     }),
   });
-  await load();
+  const arrived = await load();
+  state.selectedPerson = personKey(created.nombreCliente || nombreCliente);
   state.selectedMessageId = created.id;
-  state.filterChannel = networkForChannel(created.canal || account?.canal).id;
   state.view = "bandeja";
+  ensureSelection();
+  if (matchesFilter(created)) state.selectedMessageId = created.id;
+  if (arrived) arrivalNote = "Nuevo mensaje.";
   render();
   fillAccountSelect();
+  if (arrived) playDoublePing();
 }
 
 function renderInboxSkeleton() {
@@ -742,8 +945,12 @@ async function submitLogin() {
   renderInboxSkeleton();
   await load();
   state.selectedCompanyId = state.companies[0]?.id || null;
+  state.selectedPerson = null;
+  state.filterChannel = "";
+  ensureSelection();
   render();
   fillAccountSelect();
+  startPolling();
 }
 
 async function boot() {
@@ -753,10 +960,10 @@ async function boot() {
     clearTimeout(slow);
     state.selectedCompanyId = state.companies[0]?.id || null;
     state.view = "bandeja";
-    if (!state.filterChannel) state.filterChannel = "google";
-    ensureChannelSelection();
+    ensureSelection();
     render();
     fillAccountSelect();
+    startPolling();
   } catch (error) {
     clearTimeout(slow);
     if (error.status === 401) {

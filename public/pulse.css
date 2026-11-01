@@ -264,9 +264,15 @@ code {
   font-weight: 600;
   white-space: nowrap;
 }
-.channel-chip[aria-current="true"] {
+.channel-chip:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.channel-chip[aria-current="true"],
+.channel-chip[aria-pressed="true"] {
   background: var(--verde);
   border-color: var(--verde);
+  color: var(--oscuro);
+}
+.channel-chip[aria-pressed="true"]:hover {
+  background: color-mix(in srgb, var(--verde) 86%, var(--oscuro));
   color: var(--oscuro);
 }
 .channel-count {
@@ -532,6 +538,41 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
   overflow: hidden;
 }
 
+.thread {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.thread-item {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.thread-item[aria-current="true"] { border-color: var(--ink); }
+:root[data-theme="dark"] .thread-item[aria-current="true"] { border-color: var(--verde); }
+.thread-select {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  min-height: 48px;
+  display: grid;
+  gap: 4px;
+}
+.thread-select:hover,
+.thread-select:active { background: transparent; transform: none; }
+.thread-meta { display: flex; flex-wrap: wrap; gap: var(--s1); align-items: center; }
+.thread-select .original { border: 0; padding: 0; }
+
 .stars { color: var(--ink); letter-spacing: 0.08em; }
 :root[data-theme="dark"] .stars { color: var(--verde); }
 
@@ -630,7 +671,7 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
   .actions .primary, .actions .ghost { flex: 0 0 auto; }
   .filter-field { width: 260px; }
   .inbox { grid-template-columns: minmax(320px, 420px) minmax(0, 1fr); align-items: start; }
-  .message-list { max-height: calc(100vh - 220px); overflow: auto; }
+  .message-list, .thread { max-height: calc(100vh - 280px); overflow: auto; }
   .ficha-used { grid-template-columns: 160px minmax(0, 1fr); gap: var(--s1) var(--s3); }
   .account-head, .message-top, .profile-top { flex-direction: row; justify-content: space-between; align-items: flex-start; }
 }

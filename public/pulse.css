@@ -578,6 +578,9 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .settings-table tbody tr:hover { background: color-mix(in srgb, var(--ink) 4%, transparent); }
 .settings-network { display: grid; gap: var(--s2); margin-top: var(--s3); }
 .settings-network h3 { font-size: 16px; line-height: 24px; font-weight: 600; }
+.settings-connect { display: grid; gap: var(--s2); justify-items: start; }
+.settings-connect .primary { width: auto; }
+.settings-connect code { overflow-wrap: anywhere; }
 
 .stars { color: var(--ink); letter-spacing: 0.08em; }
 :root[data-theme="dark"] .stars { color: var(--verde); }

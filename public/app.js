@@ -634,12 +634,20 @@ function settingsView() {
     )
     .join("");
   const connections = (state.conexiones || [])
-    .map(
-      (group) => `<section class="settings-network" data-network="${escapeHtml(group.red)}">
+    .map((group) => {
+      const facebook =
+        group.red === "Facebook"
+          ? `<div class="settings-connect">
+              <p class="hint">Pega el identificador y el secreto de tu app de Meta. El botón abre Facebook Login y guarda el identificador de la página. En la app, la URI de redirección válida es <code data-testid="facebook-redirect">https://jokma-pulse.vercel.app/api/facebook/callback</code></p>
+              <button type="button" class="primary" data-action="facebook-login" data-testid="facebook-login">Conectar página de Facebook</button>
+            </div>`
+          : "";
+      return `<section class="settings-network" data-network="${escapeHtml(group.red)}">
         <h3>${escapeHtml(group.red)}</h3>
         ${settingsTable(group.filas || [], draft)}
-      </section>`,
-    )
+        ${facebook}
+      </section>`;
+    })
     .join("");
 
   return `<header class="topbar">
@@ -666,7 +674,7 @@ function settingsView() {
       </section>
       <section class="panel" data-testid="settings-connections">
         <h3>Conexiones</h3>
-        <p class="hint">Gmail usa n8n: cada correo nuevo se envía a la URL del webhook y la respuesta vuelve a Pulse. Instagram, Facebook y X no tienen OAuth.</p>
+        <p class="hint">Gmail usa n8n: cada correo nuevo se envía a la URL del webhook y la respuesta vuelve a Pulse. Facebook se conecta directo con la app de Meta. Instagram y X no tienen inicio de sesión.</p>
         ${connections}
       </section>
       <div class="actions">
@@ -783,7 +791,22 @@ app.addEventListener("submit", async (event) => {
 app.addEventListener("click", async (event) => {
   unlockAudio();
   const button = event.target.closest("[data-action]");
-  if (!button || button.closest("form")) return;
+  if (!button) return;
+  if (button.dataset.action === "facebook-login") {
+    event.preventDefault();
+    try {
+      state.error = "";
+      setControlBusy("[data-testid='facebook-login']", true, "Abriendo Facebook");
+      await saveSettings();
+      window.location.assign("/api/facebook/iniciar");
+    } catch (error) {
+      state.error = error.message;
+      state.view = "ajustes";
+      render();
+    }
+    return;
+  }
+  if (button.closest("form")) return;
   try {
     state.error = "";
     const action = button.dataset.action;
@@ -1099,6 +1122,29 @@ async function submitLogin() {
   startPolling();
 }
 
+function facebookReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const facebook = params.get("facebook");
+  if (!facebook) return;
+  const notes = {
+    ok: "Página de Facebook conectada.",
+    sin_app: "Pega el identificador y el secreto de la app de Meta antes de conectar.",
+    denegado: "Facebook no autorizó la conexión.",
+    sin_pagina: "Esa cuenta no tiene una página de Facebook.",
+    facebook: "Facebook no completó el inicio de sesión.",
+  };
+  if (facebook === "ok") {
+    state.notice = notes.ok;
+    state.error = "";
+  } else {
+    state.error = notes[params.get("motivo")] || notes.facebook;
+    state.notice = "";
+  }
+  state.view = "ajustes";
+  state.settingsDraft = structuredClone(state.companies[0]?.ajustes || {});
+  window.history.replaceState({}, "", "/");
+}
+
 async function boot() {
   const slow = setTimeout(() => renderInboxSkeleton(), 180);
   try {
@@ -1106,6 +1152,7 @@ async function boot() {
     clearTimeout(slow);
     state.selectedCompanyId = state.companies[0]?.id || null;
     state.view = "bandeja";
+    facebookReturn();
     ensureSelection();
     render();
     fillAccountSelect();

@@ -5,6 +5,7 @@ import { clearSessionCookie, publicCompany, readSessionCookie, sessionCookie } f
 import { auditReply, generateReply } from "./src/replies.js";
 import { createStore } from "./src/store.js";
 import { acceptReply, deliverInbound } from "./src/n8n.js";
+import { beginLogin, callbackMotivo, completeLogin, readState, settingsWithPage } from "./src/facebook.js";
 import { CONNECTIONS, MODELS, PARAMETERS } from "./src/settings.js";
 import { AGENT_TYPE, CHANNEL_LABELS, CHANNELS, TONE_BY_CHANNEL } from "./src/tones.js";
 
@@ -194,6 +195,59 @@ app.post("/api/n8n/respuesta", (req, res) => {
     res.json({ ok: true, mensajeId: saved.message.id });
   } catch (error) {
     fail(res, error);
+  }
+});
+
+function facebookRedirect(res, motivo) {
+  const target = motivo ? `/?facebook=error&motivo=${encodeURIComponent(motivo)}` : "/?facebook=ok";
+  res.redirect(302, target);
+}
+
+app.get("/api/facebook/iniciar", (req, res) => {
+  const company = sessionCompany(req);
+  if (!company) {
+    res.redirect(302, "/");
+    return;
+  }
+  const started = beginLogin(company, publicOrigin(req));
+  if (!started.url) {
+    facebookRedirect(res, started.motivo || "sin_app");
+    return;
+  }
+  res.redirect(302, started.url);
+});
+
+app.get("/api/facebook/callback", async (req, res) => {
+  const denied = callbackMotivo(req.query);
+  if (denied) {
+    facebookRedirect(res, denied);
+    return;
+  }
+  const companyId = readState(typeof req.query.state === "string" ? req.query.state : "");
+  const code = typeof req.query.code === "string" ? req.query.code : "";
+  if (!companyId || !code) {
+    facebookRedirect(res, "facebook");
+    return;
+  }
+  const company = store.getState().companies.find((item) => item.id === companyId);
+  const appId = company?.ajustes?.meta_app_id;
+  const appSecret = company?.ajustes?.meta_app_secret;
+  if (!company || !appId || !appSecret) {
+    facebookRedirect(res, "sin_app");
+    return;
+  }
+  try {
+    const page = await completeLogin({
+      code,
+      appId,
+      appSecret,
+      origin: publicOrigin(req),
+      organization: company.ajustes?.organization || company.nombre,
+    });
+    store.updateSettings(company.id, settingsWithPage(company, page));
+    facebookRedirect(res);
+  } catch (error) {
+    facebookRedirect(res, error.motivo === "sin_pagina" ? "sin_pagina" : "facebook");
   }
 });
 

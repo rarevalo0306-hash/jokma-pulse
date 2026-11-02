@@ -1,4 +1,5 @@
 const LONG = new Set(["description", "products", "reply_guide", "person_profile"]);
+const WIDE = new Set(["n8n_webhook_url", "meta_app_secret", "facebook_page_token"]);
 
 export const MODELS = [{ id: "jokma-ficha", etiqueta: "Jokma Ficha" }];
 
@@ -37,8 +38,10 @@ export const CONNECTIONS = [
   {
     red: "Facebook",
     filas: [
-      { nombre: "Identificador de página", api: "facebook_page_id" },
+      { nombre: "Identificador de la app de Meta", api: "meta_app_id" },
+      { nombre: "Secreto de la app de Meta", api: "meta_app_secret", secreto: true },
       { nombre: "Token de página", api: "facebook_page_token", secreto: true },
+      { nombre: "Identificador de página", api: "facebook_page_id" },
     ],
   },
   {
@@ -97,7 +100,7 @@ export function normalizeSettings(raw, company = {}) {
   const settings = {};
   for (const key of settingKeys()) {
     const multiline = LONG.has(key);
-    const max = key === "n8n_webhook_url" ? 1000 : multiline ? 2000 : 500;
+    const max = WIDE.has(key) || multiline ? 2000 : 500;
     settings[key] = Object.prototype.hasOwnProperty.call(source, key)
       ? clip(source[key], max, multiline)
       : defaults[key];

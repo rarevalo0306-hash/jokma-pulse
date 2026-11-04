@@ -638,8 +638,8 @@ function settingsView() {
       const facebook =
         group.red === "Facebook"
           ? `<div class="settings-connect">
-              <p class="hint">Pega el identificador y el secreto de tu app de Meta. El botón abre Facebook Login y guarda el identificador de la página. En la app, la URI de redirección válida es <code data-testid="facebook-redirect">https://jokma-pulse.vercel.app/api/facebook/callback</code></p>
-              <button type="button" class="primary" data-action="facebook-login" data-testid="facebook-login">Conectar página de Facebook</button>
+              <p class="hint">Crea una app de Meta solo para Pulse. Pega aquí su identificador y su secreto, guarda, y pulsa Conectar Facebook. El botón abre el inicio de sesión y guarda la página de esta empresa. En la app, las URI de redirección válidas son <code data-testid="facebook-redirect">https://jokma-pulse.vercel.app/api/facebook/callback</code> y <code data-testid="facebook-redirect-pulse">https://pulse.jokma.app/api/facebook/callback</code>.</p>
+              <button type="button" class="primary" data-action="facebook-login" data-testid="facebook-login">Conectar Facebook</button>
             </div>`
           : "";
       return `<section class="settings-network" data-network="${escapeHtml(group.red)}">

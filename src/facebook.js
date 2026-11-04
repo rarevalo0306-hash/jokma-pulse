@@ -4,6 +4,8 @@ import { normalizeSettings } from "./settings.js";
 export const GRAPH_VERSION = "v21.0";
 export const REDIRECT_PATH = "/api/facebook/callback";
 export const PRODUCTION_REDIRECT = "https://jokma-pulse.vercel.app/api/facebook/callback";
+export const PULSE_REDIRECT = "https://pulse.jokma.app/api/facebook/callback";
+const ALLOWED_HOSTS = new Set(["jokma-pulse.vercel.app", "pulse.jokma.app"]);
 
 const STATE_SECRET = process.env.PULSE_FACEBOOK_STATE_SECRET || "jokma-pulse-demo-cookie";
 const STATE_MS = 10 * 60 * 1000;
@@ -26,6 +28,15 @@ function same(left, right) {
 
 export function redirectUri(origin) {
   return `${String(origin || "").replace(/\/$/, "")}${REDIRECT_PATH}`;
+}
+
+export function requestOrigin(hostHeader, { vercel = false, proto = "http" } = {}) {
+  const raw = String(hostHeader || "").split(",")[0].trim().toLowerCase();
+  const hostname = raw.replace(/:\d+$/, "");
+  if (ALLOWED_HOSTS.has(hostname)) return `https://${hostname}`;
+  if (vercel) return "https://jokma-pulse.vercel.app";
+  const scheme = String(proto || "http").split(",")[0].trim() === "https" ? "https" : "http";
+  return `${scheme}://${raw || "127.0.0.1:4317"}`;
 }
 
 export function signState(companyId, now = Date.now()) {

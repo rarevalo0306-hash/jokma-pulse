@@ -8,6 +8,7 @@ import {
   callbackMotivo,
   completeLogin,
   readState,
+  requestOrigin,
   settingsWithPage,
 } from "./facebook.js";
 import { createStore } from "./store.js";
@@ -57,6 +58,24 @@ test("el enlace de Facebook no incluye el secreto y el estado vuelve a la empres
   assert.equal(callbackMotivo({ error: "access_denied" }), "denegado");
   assert.equal(callbackMotivo({ error: "server_error" }), "facebook");
   assert.equal(callbackMotivo({}), null);
+  assert.equal(requestOrigin("pulse.jokma.app"), "https://pulse.jokma.app");
+  assert.equal(requestOrigin("jokma-pulse.vercel.app"), "https://jokma-pulse.vercel.app");
+  assert.equal(requestOrigin("Pulse.jokma.app:443"), "https://pulse.jokma.app");
+  assert.equal(requestOrigin("evil.example", { vercel: true }), "https://jokma-pulse.vercel.app");
+  assert.equal(requestOrigin("127.0.0.1:4317", { proto: "http" }), "http://127.0.0.1:4317");
+  const pulse = beginLogin(
+    {
+      id: "co-lumen",
+      nombre: "Cafetería Lumen",
+      ajustes: { meta_app_id: "app-id-de-prueba", meta_app_secret: "secreto-de-prueba" },
+    },
+    "https://pulse.jokma.app",
+    now,
+  );
+  assert.equal(
+    new URL(pulse.url).searchParams.get("redirect_uri"),
+    "https://pulse.jokma.app/api/facebook/callback",
+  );
 });
 
 test("el canje guarda la página que coincide y conserva el resto de ajustes", async () => {

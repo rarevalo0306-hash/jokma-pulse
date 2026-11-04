@@ -5,7 +5,7 @@ import { clearSessionCookie, publicCompany, readSessionCookie, sessionCookie } f
 import { auditReply, generateReply } from "./src/replies.js";
 import { createStore } from "./src/store.js";
 import { acceptReply, deliverInbound } from "./src/n8n.js";
-import { beginLogin, callbackMotivo, completeLogin, readState, settingsWithPage } from "./src/facebook.js";
+import { beginLogin, callbackMotivo, completeLogin, readState, requestOrigin, settingsWithPage } from "./src/facebook.js";
 import { CONNECTIONS, MODELS, PARAMETERS } from "./src/settings.js";
 import { AGENT_TYPE, CHANNEL_LABELS, CHANNELS, TONE_BY_CHANNEL } from "./src/tones.js";
 
@@ -177,6 +177,12 @@ function publicOrigin(req) {
   return `${proto}://${host}`;
 }
 
+function facebookOrigin(req) {
+  const forwarded = req.headers["x-forwarded-host"] || req.headers.host;
+  const proto = req.headers["x-forwarded-proto"] || "http";
+  return requestOrigin(forwarded, { vercel: Boolean(process.env.VERCEL), proto });
+}
+
 app.post("/api/mensajes", requireSession, async (req, res) => {
   try {
     accountFor(req, req.body?.cuentaId);
@@ -209,7 +215,7 @@ app.get("/api/facebook/iniciar", (req, res) => {
     res.redirect(302, "/");
     return;
   }
-  const started = beginLogin(company, publicOrigin(req));
+  const started = beginLogin(company, facebookOrigin(req));
   if (!started.url) {
     facebookRedirect(res, started.motivo || "sin_app");
     return;
@@ -241,7 +247,7 @@ app.get("/api/facebook/callback", async (req, res) => {
       code,
       appId,
       appSecret,
-      origin: publicOrigin(req),
+      origin: facebookOrigin(req),
       organization: company.ajustes?.organization || company.nombre,
     });
     store.updateSettings(company.id, settingsWithPage(company, page));

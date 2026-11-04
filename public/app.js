@@ -1097,6 +1097,11 @@ function renderLogin(message = "") {
           </div>
         </aside>
       </section>
+      <nav class="legal-links" data-testid="legal-links">
+        <a href="/privacidad">Privacidad</a>
+        <a href="/eliminar-datos">Eliminar datos</a>
+        <a href="/terminos">Términos</a>
+      </nav>
     </div>
   </main>`;
 }

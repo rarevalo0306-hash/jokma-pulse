@@ -281,6 +281,17 @@ app.post("/api/mensajes/:id/respuesta", requireSession, (req, res) => {
   }
 });
 
+const legalPages = {
+  "/privacidad": "privacidad.html",
+  "/eliminar-datos": "eliminar-datos.html",
+  "/terminos": "terminos.html",
+};
+for (const [route, file] of Object.entries(legalPages)) {
+  app.get(route, (_req, res) => {
+    res.type("html").sendFile(path.join(__dirname, "public", file));
+  });
+}
+
 app.use(express.static(path.join(__dirname, "public")));
 
 export default app;

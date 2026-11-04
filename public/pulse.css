@@ -142,6 +142,15 @@ h1, h2, h3, p { margin: 0; }
   gap: var(--s4);
 }
 
+.legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  font-size: 14px;
+  line-height: 20px;
+}
+.legal-links a { color: var(--ink); }
+
 .gate-story {
   display: grid;
   justify-items: start;

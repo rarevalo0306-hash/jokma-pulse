@@ -1,5 +1,5 @@
 const LONG = new Set(["description", "products", "reply_guide", "person_profile"]);
-const WIDE = new Set(["n8n_webhook_url", "meta_app_secret", "facebook_page_token"]);
+const WIDE = new Set(["n8n_webhook_url", "meta_app_secret", "facebook_page_token", "instagram_access_token"]);
 
 export const MODELS = [{ id: "jokma-ficha", etiqueta: "Jokma Ficha" }];
 

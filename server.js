@@ -6,6 +6,17 @@ import { auditReply, generateReply } from "./src/replies.js";
 import { createStore } from "./src/store.js";
 import { acceptReply, deliverInbound } from "./src/n8n.js";
 import { beginLogin, callbackMotivo, completeLogin, readState, requestOrigin, settingsWithPage } from "./src/facebook.js";
+import {
+  PULSE_APP_ID,
+  acceptedSignature,
+  appCredentials,
+  beginLogin as beginInstagramLogin,
+  completeLogin as completeInstagramLogin,
+  readState as readInstagramState,
+  readInstagramEvents,
+  settingsWithInstagram,
+  webhookChallenge,
+} from "./src/instagram.js";
 import { CONNECTIONS, MODELS, PARAMETERS } from "./src/settings.js";
 import { AGENT_TYPE, CHANNEL_LABELS, CHANNELS, TONE_BY_CHANNEL } from "./src/tones.js";
 
@@ -22,7 +33,14 @@ app.use((req, res, next) => {
   res.set("Cache-Control", "no-store");
   next();
 });
-app.use(express.json({ limit: "100kb" }));
+app.use(
+  express.json({
+    limit: "100kb",
+    verify(req, _res, buf) {
+      req.rawBody = buf;
+    },
+  }),
+);
 
 function fail(res, error) {
   const status = error.status || 500;
@@ -255,6 +273,81 @@ app.get("/api/facebook/callback", async (req, res) => {
   } catch (error) {
     facebookRedirect(res, error.motivo === "sin_pagina" ? "sin_pagina" : "facebook");
   }
+});
+
+function instagramRedirect(res, motivo) {
+  const target = motivo ? `/?instagram=error&motivo=${encodeURIComponent(motivo)}` : "/?instagram=ok";
+  res.redirect(302, target);
+}
+
+app.get("/api/instagram/iniciar", (req, res) => {
+  const company = sessionCompany(req);
+  if (!company) {
+    res.redirect(302, "/");
+    return;
+  }
+  const started = beginInstagramLogin(company, facebookOrigin(req));
+  if (!started.url) {
+    instagramRedirect(res, started.motivo || "sin_app");
+    return;
+  }
+  res.redirect(302, started.url);
+});
+
+app.get("/api/instagram/callback", async (req, res) => {
+  const oauthError = typeof req.query.error === "string" ? req.query.error : "";
+  if (oauthError) {
+    instagramRedirect(res, oauthError === "access_denied" ? "denegado" : "instagram");
+    return;
+  }
+  const companyId = readInstagramState(typeof req.query.state === "string" ? req.query.state : "");
+  const code = typeof req.query.code === "string" ? req.query.code : "";
+  if (!companyId || !code) {
+    instagramRedirect(res, "instagram");
+    return;
+  }
+  const company = store.getState().companies.find((item) => item.id === companyId);
+  const creds = appCredentials(company);
+  if (!company || !creds.secret) {
+    instagramRedirect(res, "sin_app");
+    return;
+  }
+  const appId = creds.appId || PULSE_APP_ID;
+  const appSecret = creds.secret;
+  try {
+    const account = await completeInstagramLogin({
+      code,
+      appId,
+      appSecret,
+      origin: facebookOrigin(req),
+      organization: company.ajustes?.organization || company.nombre,
+    });
+    store.updateSettings(company.id, settingsWithInstagram(company, account));
+    instagramRedirect(res);
+  } catch (error) {
+    instagramRedirect(res, error.motivo === "sin_instagram" ? "sin_instagram" : "instagram");
+  }
+});
+
+app.get("/api/instagram/webhook", (req, res) => {
+  const challenge = webhookChallenge(req.query);
+  if (!challenge) {
+    res.sendStatus(403);
+    return;
+  }
+  res.type("text/plain").send(challenge);
+});
+
+app.post("/api/instagram/webhook", (req, res) => {
+  const companies = store.getState().companies;
+  if (!acceptedSignature(companies, req.rawBody, req.get("x-hub-signature-256"))) {
+    res.sendStatus(403);
+    return;
+  }
+  for (const event of readInstagramEvents(req.body)) {
+    store.recordInstagramMessage(event);
+  }
+  res.sendStatus(200);
 });
 
 app.delete("/api/mensajes/:id", requireSession, (req, res) => {

@@ -248,6 +248,70 @@ export function createStore(dataPath) {
     return { ok: true };
   }
 
+  function ensureChannelAccount(state, company, canal, cuenta) {
+    const label = clean(cuenta, 160) || canal;
+    const sameChannel = state.accounts.filter(
+      (item) => item.empresaId === company.id && item.canal === canal,
+    );
+    return (
+      sameChannel.find((item) => item.cuenta === label) ||
+      sameChannel[0] ||
+      null
+    );
+  }
+
+  function recordInstagramMessage({ igUserId, igId, canal, nombreCliente, texto, externalId, cuenta }) {
+    if (!isChannel(canal)) return null;
+    const linked = String(igUserId || igId || "");
+    if (!linked) return null;
+    const state = load();
+    const company = state.companies.find(
+      (item) => String(item.ajustes?.instagram_user_id || "") === linked,
+    );
+    if (!company) return null;
+    const nombre = clean(nombreCliente, 160);
+    const body = String(texto ?? "").trim().slice(0, 4000);
+    if (!nombre || !body) return null;
+    const id = /^msg-igc?-[A-Za-z0-9._-]{1,80}$/.test(String(externalId || "")) ? String(externalId) : "";
+    if (id) {
+      const existing = state.messages.find((item) => item.id === id);
+      if (existing) return existing;
+    }
+    let account = ensureChannelAccount(state, company, canal, cuenta);
+    if (!account) {
+      account = {
+        id: `ac-${randomUUID()}`,
+        empresaId: company.id,
+        canal,
+        cuenta: clean(cuenta, 160) || canal,
+        agente: {
+          tipo: AGENT_TYPE,
+          nombre: canal === "instagram_comment" ? "Instagram Comentarios" : "Instagram Directo",
+          industria: company.industria,
+          tono: TONE_BY_CHANNEL[canal],
+          ficha: snapshotFicha(company),
+        },
+      };
+      state.accounts.push(account);
+    }
+    const message = {
+      id: id || `msg-${randomUUID()}`,
+      cuentaId: account.id,
+      empresaId: company.id,
+      canal,
+      nombreCliente: nombre,
+      texto: body,
+      calificacion: null,
+      muestra: null,
+      respuesta: null,
+      respondidoEn: null,
+      createdAt: new Date().toISOString(),
+    };
+    state.messages.push(message);
+    save(state);
+    return message;
+  }
+
   function createMessage(input) {
     const state = load();
     const account = state.accounts.find((item) => item.id === input.cuentaId);
@@ -312,6 +376,7 @@ export function createStore(dataPath) {
     updateAccount,
     deleteAccount,
     createMessage,
+    recordInstagramMessage,
     deleteMessage,
     saveReply,
     scopedState,

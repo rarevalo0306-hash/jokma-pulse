@@ -642,10 +642,18 @@ function settingsView() {
               <button type="button" class="primary" data-action="facebook-login" data-testid="facebook-login">Conectar Facebook</button>
             </div>`
           : "";
+      const instagram =
+        group.red === "Instagram"
+          ? `<div class="settings-connect">
+              <p class="hint">Usa la misma app de Meta que Facebook, identificador <code data-testid="instagram-app">1036513856135777</code>. El botón guarda la cuenta de Instagram de esta empresa. En la app, las URI de redirección válidas son <code data-testid="instagram-redirect">https://jokma-pulse.vercel.app/api/instagram/callback</code> y <code data-testid="instagram-redirect-pulse">https://pulse.jokma.app/api/instagram/callback</code>. En Instagram, Webhooks, la URL de devolución es <code data-testid="instagram-webhook">https://pulse.jokma.app/api/instagram/webhook</code> y el token de verificación es <code data-testid="instagram-verify">jokma-pulse-instagram</code>.</p>
+              <button type="button" class="primary" data-action="instagram-login" data-testid="instagram-login">Conectar Instagram</button>
+            </div>`
+          : "";
       return `<section class="settings-network" data-network="${escapeHtml(group.red)}">
         <h3>${escapeHtml(group.red)}</h3>
         ${settingsTable(group.filas || [], draft)}
         ${facebook}
+        ${instagram}
       </section>`;
     })
     .join("");
@@ -674,7 +682,7 @@ function settingsView() {
       </section>
       <section class="panel" data-testid="settings-connections">
         <h3>Conexiones</h3>
-        <p class="hint">Gmail usa n8n: cada correo nuevo se envía a la URL del webhook y la respuesta vuelve a Pulse. Facebook se conecta directo con la app de Meta. Instagram y X no tienen inicio de sesión.</p>
+        <p class="hint">Gmail usa n8n: cada correo nuevo se envía a la URL del webhook y la respuesta vuelve a Pulse. Facebook e Instagram se conectan directo con la misma app de Meta. X no tiene inicio de sesión.</p>
         ${connections}
       </section>
       <div class="actions">
@@ -792,6 +800,20 @@ app.addEventListener("click", async (event) => {
   unlockAudio();
   const button = event.target.closest("[data-action]");
   if (!button) return;
+  if (button.dataset.action === "instagram-login") {
+    event.preventDefault();
+    try {
+      state.error = "";
+      setControlBusy("[data-testid='instagram-login']", true, "Abriendo Instagram");
+      await saveSettings();
+      window.location.assign("/api/instagram/iniciar");
+    } catch (error) {
+      state.error = error.message;
+      state.view = "ajustes";
+      render();
+    }
+    return;
+  }
   if (button.dataset.action === "facebook-login") {
     event.preventDefault();
     try {
@@ -1150,6 +1172,29 @@ function facebookReturn() {
   window.history.replaceState({}, "", "/");
 }
 
+function instagramReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const instagram = params.get("instagram");
+  if (!instagram) return;
+  const notes = {
+    ok: "Cuenta de Instagram conectada.",
+    sin_app: "Pega el secreto de la app de Meta, en Facebook, antes de conectar Instagram.",
+    denegado: "Instagram no autorizó la conexión.",
+    sin_instagram: "Esa cuenta no tiene una cuenta profesional de Instagram unida a una página.",
+    instagram: "Instagram no completó el inicio de sesión.",
+  };
+  if (instagram === "ok") {
+    state.notice = notes.ok;
+    state.error = "";
+  } else {
+    state.error = notes[params.get("motivo")] || notes.instagram;
+    state.notice = "";
+  }
+  state.view = "ajustes";
+  state.settingsDraft = structuredClone(state.companies[0]?.ajustes || {});
+  window.history.replaceState({}, "", "/");
+}
+
 async function boot() {
   const slow = setTimeout(() => renderInboxSkeleton(), 180);
   try {
@@ -1158,6 +1203,7 @@ async function boot() {
     state.selectedCompanyId = state.companies[0]?.id || null;
     state.view = "bandeja";
     facebookReturn();
+    instagramReturn();
     ensureSelection();
     render();
     fillAccountSelect();

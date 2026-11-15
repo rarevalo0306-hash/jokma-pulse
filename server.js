@@ -47,9 +47,14 @@ const store = usingSupabase
     })
   : jsonStore;
 const allowRegistration = registrationEnabled();
+const emailRecoveryEnabled = usingSupabase && String(process.env.PULSE_EMAIL_RECOVERY_ENABLED || "").toLowerCase() === "true";
 const registration = allowRegistration ? createRegistrationService({ admin: supabaseAdmin }) : null;
 const accountSecurity = usingSupabase
-  ? createAccountSecurity({ admin: supabaseAdmin, authenticate: (username, password) => store.authenticate(username, password) })
+  ? createAccountSecurity({
+      admin: supabaseAdmin,
+      authenticate: (username, password) => store.authenticate(username, password),
+      createAuthClient: () => createSupabaseAuthClient(),
+    })
   : null;
 const team = usingSupabase ? createTeamService({ admin: supabaseAdmin }) : null;
 const app = express();
@@ -88,6 +93,7 @@ function routeLimiter({ attempts, windowMs }) {
 
 const limitLogin = routeLimiter({ attempts: 20, windowMs: 15 * 60 * 1000 });
 const limitRegistration = routeLimiter({ attempts: 5, windowMs: 60 * 60 * 1000 });
+const limitRecovery = routeLimiter({ attempts: 5, windowMs: 60 * 60 * 1000 });
 
 function fail(res, error) {
   const status = error.status || 500;
@@ -160,7 +166,7 @@ app.get("/api/configuracion-publica", (_req, res) => {
   res.json({
     registroHabilitado: allowRegistration,
     codigoInvitacionRequerido: Boolean(process.env.PULSE_SIGNUP_INVITE),
-    recuperacionCorreoHabilitada: false,
+    recuperacionCorreoHabilitada: emailRecoveryEnabled,
   });
 });
 
@@ -193,6 +199,34 @@ app.post("/api/registro-invitado", limitRegistration, async (req, res) => {
     const created = await team.registerInvited(req.body || {});
     res.setHeader("Set-Cookie", sessionCookie(created.user.id, created.company.id));
     res.status(201).json({ usuario: created.user, organizacion: created.organization, empresa: created.company });
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.post("/api/cuenta/recuperar", limitRecovery, async (req, res) => {
+  try {
+    if (!emailRecoveryEnabled || !accountSecurity) {
+      throw Object.assign(new Error("La recuperación por correo todavía no está disponible."), { status: 503 });
+    }
+    const origin = requestOrigin(req.headers.host, {
+      vercel: Boolean(process.env.VERCEL),
+      proto: req.headers["x-forwarded-proto"] || req.protocol,
+    });
+    await accountSecurity.requestPasswordReset(req.body || {}, `${origin}/?recuperar=1`);
+    res.json({ ok: true, mensaje: "Si la cuenta existe, recibirás un enlace para elegir una clave nueva." });
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.post("/api/cuenta/restablecer", limitRecovery, async (req, res) => {
+  try {
+    if (!emailRecoveryEnabled || !accountSecurity) {
+      throw Object.assign(new Error("La recuperación por correo todavía no está disponible."), { status: 503 });
+    }
+    res.setHeader("Set-Cookie", clearSessionCookie());
+    res.json(await accountSecurity.resetPassword(req.body || {}));
   } catch (error) {
     fail(res, error);
   }

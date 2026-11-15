@@ -24,6 +24,8 @@ const state = {
   registrationEnabled: false,
   inviteRequired: false,
   recoveryEmailEnabled: false,
+  recoveryTokens: null,
+  recoveryNotice: "",
   loginNotice: "",
   team: null,
   invitationToken: "",
@@ -310,6 +312,23 @@ async function loadPublicConfig() {
     state.registrationEnabled = false;
     state.inviteRequired = false;
     state.recoveryEmailEnabled = false;
+  }
+}
+
+function loadRecoveryLink() {
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const recoveryRequested = new URLSearchParams(window.location.search).get("recuperar") === "1";
+  if (hash.get("type") === "recovery" && hash.get("access_token") && hash.get("refresh_token")) {
+    state.recoveryTokens = { accessToken: hash.get("access_token"), refreshToken: hash.get("refresh_token") };
+    state.authMode = "recover";
+    state.recoveryNotice = "Enlace verificado. Elige una clave nueva.";
+    window.history.replaceState({}, "", "/");
+    return;
+  }
+  if (recoveryRequested) {
+    state.authMode = "recover";
+    state.recoveryNotice = "El enlace está incompleto o venció. Solicita uno nuevo.";
+    window.history.replaceState({}, "", "/");
   }
 }
 
@@ -984,6 +1003,8 @@ app.addEventListener("submit", async (event) => {
     "create-organization": ["[data-testid='create-organization-submit']", "Creando organización"],
     "change-password": ["[data-testid='change-password-submit']", "Cambiando clave"],
     "invite-member": ["[data-testid='invite-member-submit']", "Creando invitación"],
+    "request-recovery": ["[data-testid='request-recovery-submit']", "Enviando enlace"],
+    "reset-password": ["[data-testid='reset-password-submit']", "Guardando clave"],
   }[action];
   if (busy) setControlBusy(busy[0], true, busy[1]);
   try {
@@ -1001,6 +1022,8 @@ app.addEventListener("submit", async (event) => {
     if (action === "change-password") await changePassword();
     if (action === "invite-member") await inviteMember(form);
     if (action === "update-member") await updateMember(form, event.submitter?.dataset.intent || "save");
+    if (action === "request-recovery") await requestRecovery();
+    if (action === "reset-password") await resetRecoveredPassword();
   } catch (error) {
     if (["login", "registration-user", "register", "register-invited"].includes(action)) {
       const registering = action !== "login";
@@ -1013,6 +1036,10 @@ app.addEventListener("submit", async (event) => {
       for (const id of ids) {
         document.getElementById(id)?.setAttribute("aria-invalid", "true");
       }
+      return;
+    }
+    if (["request-recovery", "reset-password"].includes(action)) {
+      renderLogin(error.message);
       return;
     }
     if (["create-company", "create-organization", "change-password", "invite-member", "update-member"].includes(action)) {
@@ -1079,6 +1106,7 @@ app.addEventListener("click", async (event) => {
       document.querySelector("#registration-name")?.focus();
     } else if (action === "show-recovery") {
       state.authMode = "recover";
+      state.recoveryNotice = "";
       renderLogin();
     } else if (action === "retry-boot") {
       await boot();
@@ -1604,11 +1632,30 @@ function renderLogin(message = "") {
           <p class="error" id="registration-error" data-testid="registration-error" role="alert">${escapeHtml(message)}</p>
         </form>`
     : recovering
-      ? `<section class="login-card recovery-card" aria-labelledby="recovery-title">
-          <h2 id="recovery-title">Recupera tu acceso</h2>
-          <p>El envío automático por correo todavía necesita un servidor SMTP. Mientras se configura, pide al administrador local que restablezca tu clave; no necesita conocer tu clave anterior.</p>
-          <button class="ghost" type="button" data-action="show-login">Volver a entrar</button>
-        </section>`
+      ? state.recoveryTokens
+        ? `<form class="login-card recovery-card" data-action="reset-password" aria-describedby="recovery-error">
+            <h2 id="recovery-title">Elige una clave nueva</h2>
+            ${state.recoveryNotice ? `<p class="success" role="status">${escapeHtml(state.recoveryNotice)}</p>` : ""}
+            <label for="recovery-password">Clave nueva<input id="recovery-password" type="password" autocomplete="new-password" minlength="6" maxlength="128" pattern="(?=.*[A-Za-z])(?=.*[0-9]).{6,128}" required /></label>
+            <label for="recovery-confirm">Confirmar clave<input id="recovery-confirm" type="password" autocomplete="new-password" minlength="6" maxlength="128" required /></label>
+            <button class="primary" type="submit" data-testid="reset-password-submit">Guardar clave nueva</button>
+            <p class="error" id="recovery-error" role="alert">${escapeHtml(message)}</p>
+          </form>`
+        : state.recoveryEmailEnabled
+          ? `<form class="login-card recovery-card" data-action="request-recovery" aria-describedby="recovery-error">
+              <h2 id="recovery-title">Recupera tu acceso</h2>
+              <p>Escribe tu usuario o correo. Si la cuenta existe, enviaremos un enlace válido durante una hora.</p>
+              ${state.recoveryNotice ? `<p class="success" role="status">${escapeHtml(state.recoveryNotice)}</p>` : ""}
+              <label for="recovery-identifier">Usuario o correo<input id="recovery-identifier" autocomplete="username email" maxlength="254" required /></label>
+              <button class="primary" type="submit" data-testid="request-recovery-submit">Enviar enlace</button>
+              <button class="ghost" type="button" data-action="show-login">Volver a entrar</button>
+              <p class="error" id="recovery-error" role="alert">${escapeHtml(message)}</p>
+            </form>`
+          : `<section class="login-card recovery-card" aria-labelledby="recovery-title">
+              <h2 id="recovery-title">Recupera tu acceso</h2>
+              <p>El envío automático por correo todavía necesita un remitente SMTP real. Mientras se configura, pide al administrador local que restablezca tu clave; no necesita conocer tu clave anterior.</p>
+              <button class="ghost" type="button" data-action="show-login">Volver a entrar</button>
+            </section>`
       : `<form class="login-card" data-action="login" data-testid="login-form" aria-describedby="login-error">
           <h2 id="login-title">Entra a Pulse</h2>
           ${state.loginNotice ? `<p class="success" role="status">${escapeHtml(state.loginNotice)}</p>` : ""}
@@ -1656,6 +1703,34 @@ function renderLogin(message = "") {
       </nav>
     </div>
   </main>`;
+}
+
+async function requestRecovery() {
+  const result = await api("/api/cuenta/recuperar", {
+    method: "POST",
+    body: JSON.stringify({ identificador: document.querySelector("#recovery-identifier").value }),
+  });
+  state.recoveryNotice = result.mensaje || "Si la cuenta existe, recibirás un enlace para elegir una clave nueva.";
+  renderLogin();
+}
+
+async function resetRecoveredPassword() {
+  const password = document.querySelector("#recovery-password").value;
+  const confirmation = document.querySelector("#recovery-confirm").value;
+  if (password !== confirmation) throw new Error("Las claves no coinciden. Vuelve a escribirlas.");
+  await api("/api/cuenta/restablecer", {
+    method: "POST",
+    body: JSON.stringify({
+      accessToken: state.recoveryTokens?.accessToken,
+      refreshToken: state.recoveryTokens?.refreshToken,
+      claveNueva: password,
+    }),
+  });
+  state.recoveryTokens = null;
+  state.recoveryNotice = "";
+  state.authMode = "login";
+  state.loginNotice = "Clave actualizada. Ya puedes entrar con tu clave nueva.";
+  renderLogin();
 }
 
 async function submitLogin() {
@@ -1835,8 +1910,14 @@ function instagramReturn() {
 async function boot() {
   const slow = setTimeout(() => renderInboxSkeleton(), 180);
   try {
+    loadRecoveryLink();
     await loadPublicConfig();
     await loadInvitation();
+    if (state.authMode === "recover") {
+      clearTimeout(slow);
+      renderLogin();
+      return;
+    }
     await load();
     if (state.invitationToken) {
       try {

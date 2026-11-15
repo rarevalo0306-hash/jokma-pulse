@@ -18,6 +18,7 @@
     "verify:registration": "node scripts/verify-registration.mjs",
     "verify:workspaces": "node scripts/verify-workspaces.mjs",
     "verify:team": "node scripts/verify-team.mjs",
+    "verify:recovery": "node scripts/verify-recovery.mjs",
     "verify:account-access": "node scripts/verify-account-access.mjs",
     "mobile:sync": "cap sync",
     "mobile:ios": "cap open ios",

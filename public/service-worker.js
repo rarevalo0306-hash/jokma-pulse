@@ -1,4 +1,4 @@
-const CACHE = "jokma-pulse-shell-v3";
+const CACHE = "jokma-pulse-shell-v4";
 const SHELL = [
   "/",
   "/app.js",

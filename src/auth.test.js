@@ -3,7 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assertSessionConfiguration, createSession, verifyPassword, verifySession } from "./auth.js";
+import {
+  assertSessionConfiguration,
+  clearSessionCookie,
+  createSession,
+  sessionCookie,
+  verifyPassword,
+  verifySession,
+} from "./auth.js";
 import { buildSeed } from "./seed.js";
 import { createStore } from "./store.js";
 
@@ -77,6 +84,22 @@ test("producción exige un secreto de sesión fuerte", () => {
     assertSessionConfiguration({ NODE_ENV: "production", PULSE_SESSION_SECRET: "a".repeat(32) }),
     true,
   );
+});
+
+test("las cookies de producción solo viajan por HTTPS", () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousSecret = process.env.PULSE_SESSION_SECRET;
+  process.env.NODE_ENV = "production";
+  process.env.PULSE_SESSION_SECRET = "a".repeat(32);
+  try {
+    assert.match(sessionCookie("usr-lumen", "co-lumen"), /; Secure$/);
+    assert.match(clearSessionCookie(), /; Secure$/);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousSecret === undefined) delete process.env.PULSE_SESSION_SECRET;
+    else process.env.PULSE_SESSION_SECRET = previousSecret;
+  }
 });
 
 test("el borrador se guarda y requiere aprobación explícita", () => {

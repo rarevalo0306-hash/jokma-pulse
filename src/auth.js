@@ -80,7 +80,7 @@ export function verifySession(token) {
 }
 
 function cookieFlags() {
-  const secure = process.env.VERCEL ? "; Secure" : "";
+  const secure = process.env.VERCEL || process.env.NODE_ENV === "production" ? "; Secure" : "";
   return `HttpOnly; SameSite=Lax; Path=/; Max-Age=${WEEK_SECONDS}${secure}`;
 }
 
@@ -89,7 +89,7 @@ export function sessionCookie(userId, companyId = userId) {
 }
 
 export function clearSessionCookie() {
-  const secure = process.env.VERCEL ? "; Secure" : "";
+  const secure = process.env.VERCEL || process.env.NODE_ENV === "production" ? "; Secure" : "";
   return `${COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`;
 }
 

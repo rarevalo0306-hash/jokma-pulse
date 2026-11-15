@@ -1,4 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "express"
+  "framework": "express",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "destination": "https://pulse.jokma.app/:path*",
+      "permanent": false
+    }
+  ]
 }

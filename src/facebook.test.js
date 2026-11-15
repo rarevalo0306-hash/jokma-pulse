@@ -41,7 +41,7 @@ test("el enlace de Facebook no incluye el secreto y el estado vuelve a la empres
   );
   const url = new URL(started.url);
   assert.equal(url.origin, "https://www.facebook.com");
-  assert.equal(url.pathname, "/v21.0/dialog/oauth");
+  assert.equal(url.pathname, "/v27.0/dialog/oauth");
   assert.equal(url.searchParams.get("client_id"), "app-id-de-prueba");
   assert.equal(
     url.searchParams.get("redirect_uri"),
@@ -84,7 +84,6 @@ test("el canje guarda la página que coincide y conserva el resto de ajustes", a
     organization: "Cafetería Lumen",
     meta_app_id: "app-id-de-prueba",
     meta_app_secret: "secreto-de-prueba",
-    n8n_webhook_url: "https://n8n.example/webhook/demo",
   });
   const calls = [];
   const page = await completeLogin({
@@ -121,10 +120,12 @@ test("el canje guarda la página que coincide y conserva el resto de ajustes", a
   const longToken = `${"p".repeat(800)}`;
   const saved = store.updateSettings("co-lumen", settingsWithPage(company, { ...page, pageToken: longToken }));
   assert.equal(saved.ajustes.facebook_page_id, "222");
-  assert.equal(saved.ajustes.facebook_page_token, longToken);
+  assert.equal(saved.ajustes.facebook_page_token, "");
   assert.equal(saved.ajustes.meta_app_id, "app-id-de-prueba");
-  assert.equal(saved.ajustes.meta_app_secret, "secreto-de-prueba");
-  assert.equal(saved.ajustes.n8n_webhook_url, "https://n8n.example/webhook/demo");
+  assert.equal(saved.ajustes.meta_app_secret, "");
+  const privateCompany = store.getCompanyWithSecrets("co-lumen");
+  assert.equal(privateCompany.ajustes.facebook_page_token, longToken);
+  assert.equal(privateCompany.ajustes.meta_app_secret, "secreto-de-prueba");
   assert.equal(saved.clave, undefined);
 });
 

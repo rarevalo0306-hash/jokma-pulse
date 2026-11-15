@@ -47,15 +47,17 @@ test("los ajustes de una empresa no cambian a la otra ni guardan la clave", () =
   assert.equal(saved.ajustes.organization, "Cafetería Lumen Norte");
   assert.equal(saved.ajustes.products, "Café de especialidad y pasteles");
   assert.equal(saved.ajustes.reply_guide, "No prometas descuentos.");
-  assert.equal(saved.ajustes.google_client_secret, "valor-de-prueba");
+  assert.equal(saved.ajustes.google_client_secret, "");
+  assert.equal(store.getCompanyWithSecrets("co-lumen").ajustes.google_client_secret, "valor-de-prueba");
   assert.equal(saved.ajustes.instagram_access_token, "");
   const state = store.getState();
   const arce = state.companies.find((item) => item.id === "co-arce");
   assert.equal(arce.nombre, "Clínica Dental Arce");
   assert.equal(arce.ajustes, undefined);
-  assert.equal(store.scopedState("co-arce").companies[0].ajustes.organization, "Clínica Dental Arce");
-  assert.equal(store.scopedState("co-arce").companies[0].ajustes.google_client_secret, "");
-  assert.equal(store.authenticate("lumen", "lumen123").id, "co-lumen");
+  const arceScope = store.scopedState("usr-arce", "co-arce");
+  assert.equal(arceScope.companies[0].ajustes.organization, "Clínica Dental Arce");
+  assert.equal(arceScope.companies[0].ajustes.google_client_secret, "");
+  assert.equal(store.authenticate("lumen", "lumen123").companyId, "co-lumen");
 });
 
 test("una empresa nueva conserva su ficha al recargar el archivo", () => {
@@ -82,4 +84,14 @@ test("una empresa nueva conserva su ficha al recargar el archivo", () => {
   const reloaded = createStore(file).getState();
   assert.ok(reloaded.companies.some((item) => item.nombre === "Florería Nube"));
   assert.ok(reloaded.accounts.some((item) => item.agente.nombre === "Nube Correo"));
+});
+
+test("el seguimiento conserva estado, asignación y notas internas", () => {
+  const store = tempStore();
+  const message = store.getState().messages.find((item) => item.empresaId === "co-lumen");
+  const updated = store.updateConversation(message.id, { status: "pending", assignedToMe: true }, "usr-lumen");
+  assert.equal(updated.estadoConversacion, "pending");
+  assert.equal(updated.asignadoA, "usr-lumen");
+  const noted = store.addConversationNote(message.id, "Llamar mañana.", "usr-lumen");
+  assert.equal(noted.notas.at(-1).texto, "Llamar mañana.");
 });

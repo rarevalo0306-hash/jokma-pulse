@@ -1,0 +1,24 @@
+{
+  "name": "Jokma Pulse",
+  "short_name": "Pulse",
+  "description": "Bandeja omnicanal multiempresa de Jokma.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07120f",
+  "theme_color": "#0f8f72",
+  "icons": [
+    {
+      "src": "/jokma-pulse-icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/jokma-pulse-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -6,3 +6,5 @@ node_modules/
 *.key
 secrets/
 data/pulse.json
+backups/
+.impeccable/

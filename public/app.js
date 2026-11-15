@@ -2,6 +2,7 @@ const app = document.querySelector("#app");
 
 const state = {
   view: "bandeja",
+  user: null,
   companies: [],
   accounts: [],
   messages: [],
@@ -12,9 +13,13 @@ const state = {
   draft: null,
   filterCompany: "",
   filterChannel: "",
+  searchQuery: "",
+  mobilePane: "list",
   settingsDraft: null,
   error: "",
   notice: "",
+  authMode: "login",
+  registrationEnabled: false,
 };
 
 let knownMessageIds = null;
@@ -67,7 +72,7 @@ function personKey(name) {
 }
 
 function companyMessages() {
-  const empresaId = state.companies[0]?.id;
+  const empresaId = state.selectedCompanyId;
   return state.messages.filter((message) => !empresaId || message.empresaId === empresaId);
 }
 
@@ -98,6 +103,10 @@ function people() {
   }
   let list = [...map.values()];
   if (state.filterChannel) list = list.filter((person) => person.last || person.key === state.selectedPerson);
+  if (state.searchQuery) {
+    const query = personKey(state.searchQuery);
+    list = list.filter((person) => personKey(person.name).includes(query) || personKey(person.last?.texto || person.lastAny?.texto).includes(query));
+  }
   return list.sort((a, b) =>
     String((b.last || b.lastAny).createdAt).localeCompare(String((a.last || a.lastAny).createdAt)),
   );
@@ -237,6 +246,7 @@ async function api(url, options) {
 
 async function load() {
   const payload = await api("/api/estado");
+  state.user = payload.user || null;
   state.companies = payload.companies;
   state.accounts = payload.accounts;
   state.messages = payload.messages;
@@ -244,6 +254,7 @@ async function load() {
   state.modelos = payload.modelos || [];
   state.parametros = payload.parametros || [];
   state.conexiones = payload.conexiones || [];
+  state.selectedCompanyId = payload.activeCompanyId || state.companies[0]?.id || null;
   if (state.selectedCompanyId && !companyById(state.selectedCompanyId)) {
     state.selectedCompanyId = null;
     state.view = "bandeja";
@@ -252,6 +263,15 @@ async function load() {
     state.selectedMessageId = null;
   }
   return noteArrivals(state.messages);
+}
+
+async function loadPublicConfig() {
+  try {
+    const payload = await api("/api/configuracion-publica");
+    state.registrationEnabled = payload.registroHabilitado === true;
+  } catch {
+    state.registrationEnabled = false;
+  }
 }
 
 function setDraftFromCompany(company) {
@@ -321,17 +341,29 @@ function render() {
       : state.view === "ajustes"
         ? settingsView()
         : inboxView();
-  app.innerHTML = `<div class="shell"><a class="skip" href="#contenido">Saltar al contenido</a><p class="sr-only" aria-live="polite" data-testid="arrival-note">${escapeHtml(arrivalNote)}</p>${appBar()}<main class="main" id="contenido" tabindex="-1">${body}</main></div>`;
+  app.innerHTML = `<div class="shell"><a class="skip" href="#contenido">Saltar al contenido</a><p class="sr-only" aria-live="polite" data-testid="arrival-note">${escapeHtml(arrivalNote)}</p>${appBar()}<main class="main" id="contenido" tabindex="-1">${workspaceBar()}${body}</main></div>`;
 }
 
 function appBar() {
-  return `<header class="app-bar">
-    <div class="brand"><h1 class="lockup">${brandLockup()}</h1></div>
-    <div class="nav-footer">
+  return `<aside class="app-bar" aria-label="Navegación principal">
+    <div class="brand"><img class="brand-symbol" src="/jokma-pulse-icon.svg" alt="Jokma Pulse" /></div>
+    <nav class="nav-stack">
+      <button type="button" class="nav-button" data-action="nav-inbox" data-testid="nav-inbox" ${state.view === "bandeja" ? 'aria-current="page"' : ""}>Mensajes</button>
+      <button type="button" class="nav-button" data-action="open-company" data-id="${escapeHtml(state.selectedCompanyId || "")}" data-testid="nav-company" ${state.view === "empresa" ? 'aria-current="page"' : ""}>Empresa</button>
       <button type="button" class="nav-button" data-action="open-settings" data-testid="nav-settings" ${state.view === "ajustes" ? 'aria-current="page"' : ""}>Ajustes</button>
-      ${themeButton()}
-      <button type="button" class="nav-button" data-action="logout" data-testid="logout">Cerrar sesión</button>
-    </div>
+    </nav>
+    <div class="nav-footer">${themeButton()}<button type="button" class="nav-button" data-action="logout" data-testid="logout">Salir</button></div>
+  </aside>`;
+}
+
+function workspaceBar() {
+  const options = state.companies
+    .map((company) => `<option value="${escapeHtml(company.id)}"${company.id === state.selectedCompanyId ? " selected" : ""}>${escapeHtml(company.nombre)}</option>`)
+    .join("");
+  return `<header class="workspace-bar">
+    <div class="workspace-brand"><span class="pulse-dot" aria-hidden="true"></span><strong>Pulse</strong></div>
+    <label class="company-switcher" for="company-switcher"><span>Empresa activa</span><select id="company-switcher" data-testid="company-switcher">${options}</select></label>
+    <div class="workspace-user"><span>${escapeHtml(state.user?.nombre || "Usuario")}</span><span class="user-avatar" aria-hidden="true">${escapeHtml((state.user?.nombre || "U").slice(0, 1))}</span></div>
   </header>`;
 }
 
@@ -418,99 +450,51 @@ function accountsSection(company) {
 
 function inboxView() {
   ensureSelection();
-  const company = state.companies[0];
+  const company = companyById(state.selectedCompanyId);
   const list = people();
   const person = list.find((item) => item.key === state.selectedPerson) || null;
   const thread = person ? messagesForPerson(person.key) : [];
   const filterLabel = state.filterChannel ? networkById(state.filterChannel).label : "";
-  const rows = list
-    .map((item) => {
-      const last = item.last;
-      const network = last ? networkForChannel(last.canal) : null;
-      const slug = item.key.replace(/\s+/g, "-");
-      return `<li><button type="button" class="message-button" data-action="open-person" data-person="${escapeHtml(item.key)}" data-testid="person-${escapeHtml(slug)}" aria-current="${state.selectedPerson === item.key ? "true" : "false"}">
-        <div class="message-top">
-          <strong>${escapeHtml(item.name)}</strong>
-          ${network ? `<span class="pill" data-network="${escapeHtml(network.id)}">${escapeHtml(network.label)}</span>` : ""}
-        </div>
-        <p class="message-preview">${escapeHtml(last ? last.texto : "Sin mensajes en esta red.")}</p>
-      </button></li>`;
-    })
-    .join("");
+  const rows = list.map((item) => {
+    const last = item.last || item.lastAny;
+    const network = last ? networkForChannel(last.canal) : null;
+    const slug = item.key.replace(/\s+/g, "-");
+    return `<li><button type="button" class="message-button" data-action="open-person" data-person="${escapeHtml(item.key)}" data-testid="person-${escapeHtml(slug)}" aria-current="${state.selectedPerson === item.key ? "true" : "false"}">
+      <span class="person-avatar" aria-hidden="true">${escapeHtml(item.name.slice(0, 1))}</span>
+      <span class="message-copy"><span class="message-top"><strong>${escapeHtml(item.name)}</strong>${network ? `<span class="pill">${escapeHtml(network.label)}</span>` : ""}</span><span class="message-preview">${escapeHtml(last?.texto || "Sin mensajes")}</span><span class="queue-status" data-state="${escapeHtml(last?.estadoRespuesta || "sin_borrador")}">${escapeHtml(responseStatus(last))}</span></span>
+    </button></li>`;
+  }).join("");
   const chips = NETWORKS.map((item) => {
     const count = companyMessages().filter((message) => item.channels.includes(message.canal)).length;
     const pressed = state.filterChannel === item.id;
-    return `<button type="button" class="channel-chip" data-action="select-network" data-network="${item.id}" aria-pressed="${pressed ? "true" : "false"}" aria-label="${item.label}, ${pressed ? "filtro activo" : "sin filtro"}, ${count} ${count === 1 ? "mensaje" : "mensajes"}">
-      <span>${item.label}</span>
-      <span class="channel-count">${count}</span>
-    </button>`;
+    return `<button type="button" class="channel-chip" data-action="select-network" data-network="${item.id}" aria-pressed="${pressed ? "true" : "false"}"><span>${item.label}</span><span class="channel-count">${count}</span></button>`;
   }).join("");
-  const threadItems = thread
-    .map((message) => {
-      const network = networkForChannel(message.canal);
-      const selected = message.id === state.selectedMessageId;
-      const savedReply =
-        message.respuesta && !selected ? `<pre class="reply">${escapeHtml(message.respuesta)}</pre>` : "";
-      return `<li class="thread-item" data-testid="message-${escapeHtml(message.id)}" data-network="${escapeHtml(network.id)}" aria-current="${selected ? "true" : "false"}">
-        <button type="button" class="thread-select" data-action="open-message" data-id="${escapeHtml(message.id)}">
-          <span class="thread-meta">
-            <span class="pill">${escapeHtml(network.label)}</span>
-            <span class="meta">${escapeHtml(channelLabel(message.canal))}</span>
-            <time datetime="${escapeHtml(message.createdAt)}">${escapeHtml(formatWhen(message.createdAt))}</time>
-          </span>
-          ${message.calificacion ? `<span class="stars" aria-label="${message.calificacion} de 5 estrellas">${stars(message.calificacion)}</span>` : ""}
-          <span class="original"${selected ? ` data-testid="message-text-view"` : ""}>${escapeHtml(message.texto)}</span>
-        </button>
-        ${savedReply}
-        ${selected ? messageDetail() : ""}
-      </li>`;
-    })
-    .join("");
+  const threadItems = thread.map((message) => {
+    const network = networkForChannel(message.canal);
+    const selected = message.id === state.selectedMessageId;
+    return `<li class="thread-item" data-testid="message-${escapeHtml(message.id)}" aria-current="${selected ? "true" : "false"}"><button type="button" class="thread-select" data-action="open-message" data-id="${escapeHtml(message.id)}"><span class="thread-meta"><span class="pill">${escapeHtml(network.label)}</span><span>${escapeHtml(channelLabel(message.canal))}</span><time datetime="${escapeHtml(message.createdAt)}">${escapeHtml(formatWhen(message.createdAt))}</time></span>${message.calificacion ? `<span class="stars" aria-label="${message.calificacion} de 5 estrellas">${stars(message.calificacion)}</span>` : ""}<span class="original"${selected ? ` data-testid="message-text-view"` : ""}>${escapeHtml(message.texto)}</span></button></li>`;
+  }).join("");
   const conversation = person
-    ? `<header class="topbar">
-        <div>
-          <p class="eyebrow">Conversación</p>
-          <h2>${escapeHtml(person.name)}</h2>
-          <p class="hint">${filterLabel ? `Solo ${escapeHtml(filterLabel)}.` : "Todas las redes, en orden."}</p>
-        </div>
-      </header>
-      <ol class="thread" data-testid="conversation">
-        ${threadItems || `<li class="empty-state" data-testid="empty-detail"><h3>Sin mensajes en esta red</h3><p>Quita el filtro de ${escapeHtml(filterLabel)} para ver todas las redes de esta persona.</p></li>`}
-      </ol>`
-    : `<section class="profile empty-state" data-testid="empty-detail"><h3>Elige una persona</h3><p>Su conversación reúne Google, Instagram, Facebook, X y Correo.</p></section>`;
+    ? `<header class="conversation-head"><button type="button" class="mobile-back" data-action="back-to-list">Volver</button><div><h2>${escapeHtml(person.name)}</h2><p>${filterLabel ? `Mostrando ${escapeHtml(filterLabel)}` : "Conversación omnicanal"}</p></div></header><ol class="thread" data-testid="conversation">${threadItems || `<li class="empty-state" data-testid="empty-detail"><h3>Sin mensajes en esta red</h3><p>Cambia el filtro para continuar.</p></li>`}</ol>${messageDetail()}`
+    : `<section class="empty-state" data-testid="empty-detail"><h3>Elige una persona</h3><p>Su conversación reúne todos los canales.</p></section>`;
 
-  return `<section class="company-head">
-      <div>
-        <p class="eyebrow">Empresa</p>
-        <h2 data-testid="session-company">${escapeHtml(company?.nombre || "Empresa")}</h2>
-        <p class="hint">${escapeHtml(company?.industria || "")}</p>
-        <p class="lede">Una persona reúne todas sus redes. La fila de arriba filtra esa conversación.</p>
-      </div>
-      <div class="actions">
-        <button type="button" class="nav-button" data-action="nav-inbox" data-testid="nav-inbox" aria-current="page">Mensajes</button>
-        <button type="button" class="ghost" data-action="open-settings">Ajustes</button>
-        ${company ? `<button type="button" class="ghost company-button" data-action="open-company" data-id="${escapeHtml(company.id)}" data-testid="company-${escapeHtml(company.id)}">Ficha</button>` : ""}
-      </div>
-    </section>
-    <nav class="channel-row" aria-label="Filtrar por red" data-testid="filter-channel">${chips}</nav>
-    <p class="hint" data-testid="filter-status">${filterLabel ? `Filtro: ${escapeHtml(filterLabel)}.` : "Ninguna red seleccionada: se ven todas."}</p>
-    ${banner()}
-    <div class="inbox">
-      <section class="inbox-column" aria-label="Personas">
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">Personas</p>
-            <h2>Conversaciones</h2>
-            <p class="hint">${list.length} ${list.length === 1 ? "persona" : "personas"}.</p>
-          </div>
-        </header>
-        ${composer()}
-        <ul class="message-list">
-          ${rows || `<li class="empty-state" data-testid="empty-inbox"><h3>Sin personas</h3><p>No hay mensajes en esta red.</p></li>`}
-        </ul>
-      </section>
-      <section class="inbox-detail" aria-label="Conversación de la persona">${conversation}</section>
-    </div>`;
+  return `<section class="inbox-titlebar"><div><h2 data-testid="session-company">Bandeja</h2><p>${escapeHtml(company?.nombre || "Empresa")} · ${list.length} conversaciones</p></div><button type="button" class="ghost test-message-button" data-action="toggle-test-message">Simular entrada</button></section>${banner()}<div class="inbox" data-mobile-pane="${escapeHtml(state.mobilePane)}"><section class="inbox-column" aria-label="Cola de conversaciones"><div class="queue-tools"><label class="search-field" for="conversation-search"><span class="sr-only">Buscar conversaciones</span><input id="conversation-search" type="search" data-search="conversation" value="${escapeHtml(state.searchQuery)}" placeholder="Buscar persona o mensaje" /></label><span class="queue-count">${list.length}</span></div><nav class="channel-row" aria-label="Filtrar por red" data-testid="filter-channel"><button type="button" class="channel-chip" data-action="select-network" data-network="" aria-pressed="${state.filterChannel ? "false" : "true"}"><span>Todos</span><span class="channel-count">${companyMessages().length}</span></button>${chips}</nav><div class="test-message-drawer" ${state.showTestMessage ? "" : "hidden"}>${composer()}</div><ul class="message-list">${rows || `<li class="empty-state" data-testid="empty-inbox"><h3>Sin conversaciones</h3><p>Cambia el filtro o la búsqueda.</p></li>`}</ul></section><section class="inbox-detail" aria-label="Conversación de la persona">${conversation}</section><aside class="context-panel" aria-label="Contexto de la conversación">${contextPanel()}</aside></div>`;
+}
+
+function responseStatus(message) {
+  return ({ sin_borrador: "Pendiente", borrador: "Borrador", aprobado: "Aprobado", enviando: "Enviando", enviado: "Enviado", entregado: "Entregado", error: "Error de envío" })[message?.estadoRespuesta] || "Pendiente";
+}
+
+function contextPanel() {
+  const message = state.messages.find((item) => item.id === state.selectedMessageId);
+  if (!message) return `<div class="empty-state"><h3>Contexto</h3><p>Selecciona un mensaje para ver el perfil utilizado.</p></div>`;
+  const account = accountById(message.cuentaId);
+  const ficha = account?.agente?.ficha || {};
+  const statuses = [["open", "Abierta"], ["pending", "En espera"], ["closed", "Cerrada"]]
+    .map(([value, label]) => `<option value="${value}"${(message.estadoConversacion || "open") === value ? " selected" : ""}>${label}</option>`)
+    .join("");
+  const notes = (message.notas || []).map((note) => `<li><strong>${escapeHtml(note.autor || "Equipo")}</strong><p>${escapeHtml(note.texto)}</p><time datetime="${escapeHtml(note.createdAt || "")}">${escapeHtml(formatWhen(note.createdAt))}</time></li>`).join("");
+  return `<div class="context-head"><h3>Contexto</h3><button type="button" class="tiny" data-action="delete-message" data-testid="delete-message">Eliminar</button></div><dl class="context-list" data-testid="agent-ficha"><dt>Agente</dt><dd data-testid="agent-name">${escapeHtml(account?.agente?.nombre || "")}</dd><dt>Canal</dt><dd data-testid="agent-account">${escapeHtml(channelLabel(account?.canal || ""))} · ${escapeHtml(account?.cuenta || "")}</dd><dt>Industria</dt><dd data-testid="agent-industry">${escapeHtml(account?.agente?.industria || "")}</dd><dt>Servicios</dt><dd>${escapeHtml(ficha.servicios || "Sin datos")}</dd><dt>Horario</dt><dd>${escapeHtml(ficha.horarios || "Sin datos")}</dd><dt>Soporte</dt><dd>${escapeHtml(ficha.soporte || "Sin datos")}</dd></dl><p class="tone" data-testid="agent-tone">${escapeHtml(account?.agente?.tono || "")}</p><section class="conversation-ops" aria-label="Operación de la conversación"><h4>Seguimiento</h4><label>Estado<select data-testid="conversation-status">${statuses}</select></label><label class="check-row"><input type="checkbox" data-testid="assign-to-me" ${message.asignadoA === state.user?.id ? "checked" : ""} /> Asignarme esta conversación</label><button type="button" class="ghost" data-action="save-conversation" data-testid="save-conversation">Guardar seguimiento</button><h4>Notas internas</h4><ul class="notes-list">${notes || "<li>Sin notas internas.</li>"}</ul><label>Nueva nota<textarea data-testid="conversation-note" rows="3" maxlength="2000"></textarea></label><button type="button" class="ghost" data-action="add-note" data-testid="add-note">Agregar nota</button></section><span class="sr-only" data-testid="agent-type">Tipo: atención</span>`;
 }
 
 function composer() {
@@ -535,92 +519,71 @@ function composer() {
 function messageDetail() {
   const message = state.messages.find((item) => item.id === state.selectedMessageId);
   if (!message) {
-    return `<section class="profile empty-state" data-testid="empty-detail"><h3>Nada seleccionado</h3><p>Elige un mensaje de este canal para escribir la respuesta.</p></section>`;
+    return `<section class="reply-composer empty-state" data-testid="empty-detail"><h3>Selecciona un mensaje</h3><p>El borrador aparecerá aquí.</p></section>`;
   }
-  const account = accountById(message.cuentaId);
-  const company = companyById(message.empresaId);
-  const ficha = account?.agente.ficha || {};
-  const fichaRows = [
-    ["Nombre", ficha.nombre],
-    ["Servicios", ficha.servicios],
-    ["Horarios", ficha.horarios],
-    ["Teléfono", ficha.telefono],
-    ["Correo oficial", ficha.correoOficial],
-    ["Sitio web", ficha.sitioWeb],
-    ["Soporte", ficha.soporte],
-  ]
-    .map(
-      ([label, value]) =>
-        `<dt>${label}</dt><dd>${escapeHtml(value || "—")}</dd>`,
-    )
-    .join("");
-
-  return `<article class="profile" data-testid="message-detail">
-    <div class="profile-top">
-      <div>
-        <p class="eyebrow">${escapeHtml(message.muestra || "Mensaje")}</p>
-        <h3>${escapeHtml(message.nombreCliente)}</h3>
-        <p class="meta">${escapeHtml(company?.nombre || "")} · ${message.calificacion ? stars(message.calificacion) : channelLabel(message.canal)}</p>
-      </div>
-      <button type="button" class="tiny danger" data-action="delete-message" data-testid="delete-message">Eliminar</button>
-    </div>
-    <section class="profile-block">
-      <h3>Perfil que responde</h3>
-      <p data-testid="agent-name">${escapeHtml(account?.agente.nombre || "")}</p>
-      <p class="meta" data-testid="agent-type">Tipo: atención · el mismo en todas las cuentas</p>
-      <p class="meta" data-testid="agent-industry">Industria: ${escapeHtml(account?.agente.industria || "")}</p>
-      <p class="meta" data-testid="agent-account">${escapeHtml(channelLabel(account?.canal || ""))} · ${escapeHtml(account?.cuenta || "")}</p>
-      <p class="tone" data-testid="agent-tone">${escapeHtml(account?.agente.tono || "")}</p>
-    </section>
-    <section class="profile-block">
-      <h3>Ficha de esta cuenta</h3>
-      <dl class="ficha-used" data-testid="agent-ficha">${fichaRows}</dl>
-    </section>
-    <div class="actions">
-      <button type="button" class="primary" data-action="generate-reply" data-testid="generate-reply">Generar respuesta</button>
-      <button type="button" class="ghost" data-action="copy-reply" data-testid="copy-reply">Copiar respuesta</button>
-    </div>
-    <pre class="reply" data-testid="reply-text" data-reply-at="${escapeHtml(message.respondidoEn || "")}">${escapeHtml(message.respuesta || "")}</pre>
-    <p class="revision" data-testid="revision" data-ok="${message.respuesta ? "pending" : "false"}" aria-live="polite">${message.respuesta ? "Respuesta guardada en este equipo." : "Aún no hay respuesta."}</p>
-  </section>`;
+  const draft = message.borrador || message.respuesta || "";
+  const approved = message.estadoRespuesta === "aprobado";
+  const locked = ["aprobado", "enviando", "enviado", "entregado"].includes(message.estadoRespuesta);
+  const account = state.accounts.find((item) => item.id === message.cuentaId);
+  const directChannels = new Set(["email", "google_reviews", "x", "facebook_messenger", "instagram_dm"]);
+  const canSend = directChannels.has(account?.canal) && ["aprobado", "error"].includes(message.estadoRespuesta);
+  const sendLabel = account?.canal === "google_reviews"
+    ? "Publicar respuesta"
+    : account?.canal === "x"
+      ? "Enviar en X"
+      : account?.canal === "facebook_messenger"
+        ? "Enviar en Messenger"
+        : account?.canal === "instagram_dm"
+          ? "Enviar en Instagram"
+          : "Enviar correo";
+  const deliveryNote = message.estadoRespuesta === "enviado" || message.estadoRespuesta === "entregado"
+    ? "Respuesta enviada directamente por correo."
+    : message.estadoRespuesta === "error"
+      ? "El envío falló. Revisa la conexión y vuelve a intentarlo."
+      : approved
+        ? directChannels.has(account?.canal) ? "Borrador aprobado. Ya puedes enviarlo directamente." : "Borrador aprobado. Este canal aún requiere copiar la respuesta."
+        : draft ? "Borrador guardado. Revisa y aprueba antes de usarlo." : "Genera un borrador para comenzar.";
+  return `<article class="reply-composer" data-testid="message-detail"><div class="composer-head"><div><h3>Borrador de respuesta</h3><p>Edita el texto antes de aprobarlo.</p></div><span class="reply-state" data-state="${escapeHtml(message.estadoRespuesta || "sin_borrador")}">${escapeHtml(responseStatus(message))}</span></div><label for="reply-draft" class="sr-only">Borrador de respuesta</label><textarea id="reply-draft" class="reply" data-testid="reply-text" data-reply-at="${escapeHtml(message.respondidoEn || "")}" ${locked ? "readonly" : ""}>${escapeHtml(draft)}</textarea><div class="composer-actions"><button type="button" class="ghost" data-action="generate-reply" data-testid="generate-reply" ${locked ? "disabled" : ""}>${draft ? "Regenerar" : "Generar borrador"}</button><button type="button" class="ghost" data-action="save-draft" data-testid="save-draft" ${locked ? "disabled" : ""}>Guardar borrador</button><button type="button" class="primary" data-action="approve-draft" data-testid="approve-draft" ${draft && !locked ? "" : "disabled"}>${approved ? "Aprobado" : "Aprobar"}</button>${directChannels.has(account?.canal) ? `<button type="button" class="primary" data-action="send-message" data-testid="send-message" ${canSend ? "" : "disabled"}>${message.estadoRespuesta === "error" ? "Reintentar envío" : escapeHtml(sendLabel)}</button>` : ""}<button type="button" class="ghost" data-action="copy-reply" data-testid="copy-reply" ${draft ? "" : "disabled"}>Copiar</button></div><p class="revision" data-testid="revision" data-ok="${draft ? "pending" : "false"}" aria-live="polite">${escapeHtml(deliveryNote)}</p></article>`;
 }
 
 function settingValue(draft, key) {
   return draft?.[key] ?? "";
 }
 
-function settingControl(row, draft) {
+function settingControl(row, draft, company) {
   const value = settingValue(draft, row.api);
-  const secret = row.secreto ? ` type="password" autocomplete="new-password" spellcheck="false"` : ` type="text" autocomplete="off"`;
+  const id = `setting-${String(row.api).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  const stored = row.secreto && company?.credenciales?.[row.api];
+  const secret = row.secreto ? ` type="password" autocomplete="new-password" spellcheck="false" placeholder="${stored ? "Guardado; escribe solo para reemplazar" : ""}"` : ` type="text" autocomplete="off"`;
   if (row.largo) {
-    return `<textarea data-setting="${escapeHtml(row.api)}" data-testid="setting-${escapeHtml(row.api)}" rows="3">${escapeHtml(value)}</textarea>`;
+    return `<textarea id="${escapeHtml(id)}" aria-label="${escapeHtml(row.nombre)}" data-setting="${escapeHtml(row.api)}" data-testid="setting-${escapeHtml(row.api)}" rows="3">${escapeHtml(value)}</textarea>`;
   }
-  return `<input data-setting="${escapeHtml(row.api)}" data-testid="setting-${escapeHtml(row.api)}" value="${escapeHtml(value)}"${secret} />`;
+  return `<input id="${escapeHtml(id)}" aria-label="${escapeHtml(row.nombre)}" data-setting="${escapeHtml(row.api)}" data-testid="setting-${escapeHtml(row.api)}" value="${escapeHtml(value)}"${secret} />`;
 }
 
-function settingRows(rows, draft) {
+function settingRows(rows, draft, company) {
   return rows
     .map(
       (row) => `<tr>
         <th scope="row">${escapeHtml(row.nombre)}</th>
         <td><code>${escapeHtml(row.api)}</code></td>
-        <td>${settingControl(row, draft)}</td>
+        <td>${settingControl(row, draft, company)}</td>
       </tr>`,
     )
     .join("");
 }
 
-function settingsTable(rows, draft) {
+function settingsTable(rows, draft, company) {
   return `<div class="settings-scroll">
     <table class="settings-table">
       <thead><tr><th>Nombre</th><th>Nombre en la API</th><th>Valor</th></tr></thead>
-      <tbody>${settingRows(rows, draft)}</tbody>
+      <tbody>${settingRows(rows, draft, company)}</tbody>
     </table>
   </div>`;
 }
 
 function settingsView() {
-  const company = state.companies[0];
+  const company = companyById(state.selectedCompanyId);
   const draft = state.settingsDraft || company?.ajustes || {};
   const currentModel = settingValue(draft, "model") || "jokma-ficha";
   const models = state.modelos?.length ? [...state.modelos] : [{ id: "jokma-ficha", etiqueta: "Jokma Ficha" }];
@@ -634,11 +597,13 @@ function settingsView() {
     )
     .join("");
   const connections = (state.conexiones || [])
+    .filter((group) => !group.oculto)
     .map((group) => {
       const facebook =
         group.red === "Facebook"
           ? `<div class="settings-connect">
               <p class="hint">Crea una app de Meta solo para Pulse. Pega aquí su identificador y su secreto, guarda, y pulsa Conectar Facebook. El botón abre el inicio de sesión y guarda la página de esta empresa. En la app, las URI de redirección válidas son <code data-testid="facebook-redirect">https://jokma-pulse.vercel.app/api/facebook/callback</code> y <code data-testid="facebook-redirect-pulse">https://pulse.jokma.app/api/facebook/callback</code>.</p>
+              <p class="hint">Webhook de Messenger: <code>https://pulse.jokma.app/api/facebook/webhook</code>. Token de verificación: <code>jokma-pulse-facebook</code>.</p>
               <button type="button" class="primary" data-action="facebook-login" data-testid="facebook-login">Conectar Facebook</button>
             </div>`
           : "";
@@ -649,11 +614,25 @@ function settingsView() {
               <button type="button" class="primary" data-action="instagram-login" data-testid="instagram-login">Conectar Instagram</button>
             </div>`
           : "";
+      const email =
+        group.red === "Correo"
+          ? `<div class="settings-connect">
+              <p class="hint">La recepción usa IMAP y el envío usa SMTP directamente. Guarda la configuración antes de sincronizar.</p>
+              <button type="button" class="primary" data-action="sync-email" data-testid="sync-email">Sincronizar correo</button>
+            </div>`
+          : "";
+      const providerSync = group.red === "Google"
+        ? `<div class="settings-connect"><p class="hint">La API oficial necesita acceso de Google Business Profile, cuenta y ubicación.</p><button type="button" class="primary" data-action="sync-google" data-testid="sync-google">Sincronizar reseñas</button></div>`
+        : group.red === "X"
+          ? `<div class="settings-connect"><p class="hint">Usa credenciales de usuario de la API de X para leer y responder mensajes directos.</p><button type="button" class="primary" data-action="sync-x" data-testid="sync-x">Sincronizar X</button></div>`
+          : "";
       return `<section class="settings-network" data-network="${escapeHtml(group.red)}">
         <h3>${escapeHtml(group.red)}</h3>
-        ${settingsTable(group.filas || [], draft)}
+        ${settingsTable(group.filas || [], draft, company)}
         ${facebook}
         ${instagram}
+        ${email}
+        ${providerSync}
       </section>`;
     })
     .join("");
@@ -678,11 +657,11 @@ function settingsView() {
       <section class="panel" data-testid="settings-parameters">
         <h3>Parámetros</h3>
         <p class="hint">Nombre, nombre en la API y valor. Incluye el perfil, la organización, la descripción, los productos y la guía de la IA.</p>
-        ${settingsTable(state.parametros || [], draft)}
+        ${settingsTable(state.parametros || [], draft, company)}
       </section>
       <section class="panel" data-testid="settings-connections">
         <h3>Conexiones</h3>
-        <p class="hint">Gmail usa n8n: cada correo nuevo se envía a la URL del webhook y la respuesta vuelve a Pulse. Facebook e Instagram se conectan directo con la misma app de Meta. X no tiene inicio de sesión.</p>
+        <p class="hint">Facebook e Instagram se conectan directamente con Meta. Correo usa IMAP y SMTP sin intermediarios. X y Google Reviews necesitan sus credenciales oficiales.</p>
         ${connections}
       </section>
       <div class="actions">
@@ -701,7 +680,7 @@ function fillAccountSelect() {
   const accountSelect = document.querySelector("#message-account");
   const ratingWrap = document.querySelector("#rating-wrap");
   if (!accountSelect) return;
-  const empresaId = state.companies[0]?.id;
+  const empresaId = state.selectedCompanyId;
   const channels = state.filterChannel ? new Set(networkById(state.filterChannel).channels) : null;
   const accounts = state.accounts.filter(
     (item) => item.empresaId === empresaId && (!channels || channels.has(item.canal)),
@@ -724,6 +703,15 @@ function fillAccountSelect() {
 }
 
 app.addEventListener("input", (event) => {
+  if (event.target.matches("[data-search='conversation']")) {
+    state.searchQuery = event.target.value;
+    const caret = event.target.selectionStart;
+    render();
+    const search = document.querySelector("[data-search='conversation']");
+    search?.focus();
+    if (search && caret !== null) search.setSelectionRange(caret, caret);
+    return;
+  }
   const setting = event.target.dataset.setting;
   if (setting && state.settingsDraft) {
     state.settingsDraft[setting] = event.target.value;
@@ -741,6 +729,29 @@ app.addEventListener("input", (event) => {
 });
 
 app.addEventListener("change", async (event) => {
+  if (event.target.id === "company-switcher") {
+    try {
+      event.target.disabled = true;
+      await api("/api/sesion/empresa", {
+        method: "POST",
+        body: JSON.stringify({ empresaId: event.target.value }),
+      });
+      state.selectedPerson = null;
+      state.selectedMessageId = null;
+      state.filterChannel = "";
+      state.searchQuery = "";
+      state.mobilePane = "list";
+      state.settingsDraft = null;
+      await load();
+      ensureSelection();
+      render();
+      fillAccountSelect();
+    } catch (error) {
+      state.error = error.message;
+      render();
+    }
+    return;
+  }
   if (event.target.id === "model-select" && state.settingsDraft) {
     state.settingsDraft.model = event.target.value;
     const input = document.querySelector("[data-setting='model']");
@@ -765,27 +776,35 @@ app.addEventListener("submit", async (event) => {
   const form = event.target.closest("form");
   if (!form) return;
   event.preventDefault();
+  const action = form.dataset.action;
   const busy = {
     login: ["[data-testid='login-submit']", "Entrando"],
+    register: ["[data-testid='registration-submit']", "Creando cuenta"],
     "save-company": ["[data-testid='save-company']", "Guardando"],
     "save-account-new": ["[data-testid='save-account']", "Agregando"],
     "save-message": ["[data-testid='save-message']", "Agregando"],
     "save-settings": ["[data-testid='save-settings']", "Guardando"],
-  }[form.dataset.action];
+  }[action];
   if (busy) setControlBusy(busy[0], true, busy[1]);
   try {
     state.error = "";
-    if (form.dataset.action === "login") await submitLogin();
-    if (form.dataset.action === "save-company") await saveCompany();
-    if (form.dataset.action === "save-account-new") await createAccount();
-    if (form.dataset.action === "save-message") await createMessage();
-    if (form.dataset.action === "save-settings") await saveSettings();
+    if (action === "login") await submitLogin();
+    if (action === "registration-user") advanceRegistration();
+    if (action === "register") await submitRegistration();
+    if (action === "save-company") await saveCompany();
+    if (action === "save-account-new") await createAccount();
+    if (action === "save-message") await createMessage();
+    if (action === "save-settings") await saveSettings();
   } catch (error) {
-    if (form.dataset.action === "login") {
-      setControlBusy("[data-testid='login-submit']", false);
-      const node = document.querySelector('[data-testid="login-error"]');
+    if (["login", "registration-user", "register"].includes(action)) {
+      const registering = action !== "login";
+      setControlBusy(registering ? "[data-testid='registration-submit']" : "[data-testid='login-submit']", false);
+      const node = document.querySelector(registering ? '[data-testid="registration-error"]' : '[data-testid="login-error"]');
       if (node) node.textContent = error.message;
-      for (const id of ["login-user", "login-password"]) {
+      const ids = registering
+        ? ["registration-name", "registration-last-name", "registration-company", "registration-industry", "registration-user", "registration-email", "registration-password", "registration-confirm"]
+        : ["login-user", "login-password"];
+      for (const id of ids) {
         document.getElementById(id)?.setAttribute("aria-invalid", "true");
       }
       return;
@@ -828,12 +847,24 @@ app.addEventListener("click", async (event) => {
     }
     return;
   }
+  if (button.dataset.action === "registration-back") {
+    backToRegistrationUser();
+    return;
+  }
   if (button.closest("form")) return;
   try {
     state.error = "";
     const action = button.dataset.action;
     if (action === "toggle-theme") {
       toggleTheme();
+    } else if (action === "show-login") {
+      state.authMode = "login";
+      renderLogin();
+      document.querySelector("#login-user")?.focus();
+    } else if (action === "show-registration") {
+      state.authMode = "register";
+      renderLogin();
+      document.querySelector("#registration-name")?.focus();
     } else if (action === "retry-boot") {
       await boot();
     } else if (action === "nav-inbox") {
@@ -853,6 +884,9 @@ app.addEventListener("click", async (event) => {
       state.selectedPerson = null;
       state.selectedMessageId = null;
       state.filterChannel = "";
+      state.searchQuery = "";
+      state.mobilePane = "list";
+      state.user = null;
       state.settingsDraft = null;
       state.error = "";
       state.notice = "";
@@ -861,7 +895,7 @@ app.addEventListener("click", async (event) => {
       state.view = "ajustes";
       state.notice = "";
       state.error = "";
-      state.settingsDraft = structuredClone(state.companies[0]?.ajustes || {});
+      state.settingsDraft = structuredClone(companyById(state.selectedCompanyId)?.ajustes || {});
       render();
     } else if (action === "open-company") {
       state.view = "empresa";
@@ -870,6 +904,7 @@ app.addEventListener("click", async (event) => {
       setDraftFromCompany(companyById(button.dataset.id));
       render();
     } else if (action === "delete-account") {
+      if (!window.confirm("¿Quitar esta cuenta? Esta acción no se puede deshacer.")) return;
       await api(`/api/cuentas/${button.dataset.id}`, { method: "DELETE" });
       await load();
       render();
@@ -896,12 +931,21 @@ app.addEventListener("click", async (event) => {
       state.selectedPerson = button.dataset.person;
       state.selectedMessageId = null;
       state.view = "bandeja";
+      state.mobilePane = "conversation";
       ensureSelection();
       render();
       fillAccountSelect();
     } else if (action === "open-message") {
       state.selectedMessageId = button.dataset.id;
       state.view = "bandeja";
+      render();
+      fillAccountSelect();
+    } else if (action === "back-to-list") {
+      state.mobilePane = "list";
+      render();
+      fillAccountSelect();
+    } else if (action === "toggle-test-message") {
+      state.showTestMessage = !state.showTestMessage;
       render();
       fillAccountSelect();
     } else if (action === "generate-reply") {
@@ -921,9 +965,73 @@ app.addEventListener("click", async (event) => {
           ? "La respuesta cumple las reglas de este canal."
           : `Revisión: ${result.revision.issues.join(", ")}`;
       }
+    } else if (action === "save-draft") {
+      const draft = document.querySelector("[data-testid='reply-text']")?.value || "";
+      await api(`/api/mensajes/${state.selectedMessageId}/borrador`, {
+        method: "PUT",
+        body: JSON.stringify({ borrador: draft }),
+      });
+      await load();
+      render();
+      fillAccountSelect();
+    } else if (action === "approve-draft") {
+      const draft = document.querySelector("[data-testid='reply-text']")?.value || "";
+      const current = state.messages.find((item) => item.id === state.selectedMessageId)?.borrador || "";
+      if (draft.trim() !== current.trim()) {
+        await api(`/api/mensajes/${state.selectedMessageId}/borrador`, {
+          method: "PUT",
+          body: JSON.stringify({ borrador: draft }),
+        });
+      }
+      await api(`/api/mensajes/${state.selectedMessageId}/aprobar`, { method: "POST", body: "{}" });
+      await load();
+      render();
+      fillAccountSelect();
+    } else if (action === "send-message") {
+      setControlBusy("[data-testid='send-message']", true, "Enviando");
+      await api(`/api/mensajes/${state.selectedMessageId}/enviar`, { method: "POST", body: "{}" });
+      await load();
+      state.notice = "Respuesta enviada por correo.";
+      render();
+      fillAccountSelect();
+    } else if (action === "sync-email") {
+      setControlBusy("[data-testid='sync-email']", true, "Sincronizando");
+      const result = await api("/api/email/sincronizar", { method: "POST", body: "{}" });
+      await load();
+      state.notice = `${result.importados} correo${result.importados === 1 ? "" : "s"} importado${result.importados === 1 ? "" : "s"}.`;
+      render();
+      fillAccountSelect();
+    } else if (action === "sync-google" || action === "sync-x") {
+      const provider = action === "sync-google" ? "google-reviews" : "x";
+      const selector = action === "sync-google" ? "[data-testid='sync-google']" : "[data-testid='sync-x']";
+      setControlBusy(selector, true, "Sincronizando");
+      const result = await api(`/api/${provider}/sincronizar`, { method: "POST", body: "{}" });
+      await load();
+      state.notice = `${result.importados} elemento${result.importados === 1 ? "" : "s"} importado${result.importados === 1 ? "" : "s"}.`;
+      render();
+      fillAccountSelect();
+    } else if (action === "save-conversation") {
+      await api(`/api/mensajes/${state.selectedMessageId}/conversacion`, {
+        method: "PUT",
+        body: JSON.stringify({
+          status: document.querySelector("[data-testid='conversation-status']")?.value || "open",
+          assignedToMe: Boolean(document.querySelector("[data-testid='assign-to-me']")?.checked),
+        }),
+      });
+      await load();
+      state.notice = "Seguimiento actualizado.";
+      render();
+      fillAccountSelect();
+    } else if (action === "add-note") {
+      const texto = document.querySelector("[data-testid='conversation-note']")?.value || "";
+      await api(`/api/mensajes/${state.selectedMessageId}/notas`, { method: "POST", body: JSON.stringify({ texto }) });
+      await load();
+      state.notice = "Nota interna agregada.";
+      render();
+      fillAccountSelect();
     } else if (action === "copy-reply") {
       const node = document.querySelector('[data-testid="reply-text"]');
-      const text = node?.textContent || "";
+      const text = node?.value || node?.textContent || "";
       if (!text.trim()) throw new Error("Genera la respuesta antes de copiarla.");
       let copied = false;
       window.__copyError = "";
@@ -932,11 +1040,8 @@ app.addEventListener("click", async (event) => {
         copied = true;
       } catch (error) {
         window.__copyError = String(error);
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(node);
-        selection.removeAllRanges();
-        selection.addRange(range);
+        node.focus();
+        node.select();
         try {
           copied = document.execCommand("copy");
         } catch (commandError) {
@@ -951,6 +1056,7 @@ app.addEventListener("click", async (event) => {
           : "Respuesta seleccionada. Cópiala con el atajo del sistema.";
       }
     } else if (action === "delete-message") {
+      if (!window.confirm("¿Eliminar este mensaje? Esta acción no se puede deshacer.")) return;
       await api(`/api/mensajes/${state.selectedMessageId}`, { method: "DELETE" });
       state.selectedMessageId = null;
       await load();
@@ -979,7 +1085,7 @@ app.addEventListener("click", async (event) => {
 });
 
 async function saveSettings() {
-  const company = state.companies[0];
+  const company = companyById(state.selectedCompanyId);
   const payload = { ...(state.settingsDraft || {}) };
   for (const input of document.querySelectorAll("[data-setting]")) {
     payload[input.dataset.setting] = input.value;
@@ -990,7 +1096,7 @@ async function saveSettings() {
     body: JSON.stringify(payload),
   });
   await load();
-  state.settingsDraft = structuredClone(state.companies[0]?.ajustes || {});
+  state.settingsDraft = structuredClone(companyById(state.selectedCompanyId)?.ajustes || {});
   state.notice = "Ajustes guardados.";
   state.view = "ajustes";
   render();
@@ -1090,24 +1196,66 @@ function renderLogin(message = "") {
   app.dataset.ready = "true";
   app.dataset.testid = "app-ready";
   const invalid = message ? ` aria-invalid="true"` : "";
+  const registering = state.registrationEnabled && state.authMode === "register";
+  const accessForm = registering
+    ? `<form class="login-card registration-card" data-action="registration-user" data-testid="registration-form" aria-describedby="registration-error">
+          <div class="auth-heading">
+            <p class="registration-progress" data-testid="registration-progress">Paso 1 de 2 · Usuario</p>
+            <h2 id="registration-title">Crea tu cuenta</h2>
+            <p>Primero registra tu acceso personal. Después crearás la organización y su primera empresa.</p>
+          </div>
+          <fieldset class="registration-step" data-registration-step="user">
+            <legend class="sr-only">Datos del usuario</legend>
+            <label for="registration-name">Nombre<input id="registration-name" data-testid="registration-name" autocomplete="given-name" maxlength="60" required${invalid} /></label>
+            <label for="registration-last-name">Apellido<input id="registration-last-name" data-testid="registration-last-name" autocomplete="family-name" maxlength="60" required${invalid} /></label>
+            <label for="registration-user">Usuario<input id="registration-user" data-testid="registration-user" autocomplete="username" minlength="3" maxlength="40" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{2,39}" aria-describedby="registration-user-hint registration-error" required${invalid} /><small id="registration-user-hint">Letras, números, punto, guion o guion bajo.</small></label>
+            <label for="registration-email">Correo<input id="registration-email" data-testid="registration-email" type="email" autocomplete="email" maxlength="254" required${invalid} /></label>
+            <label for="registration-password">Clave<input id="registration-password" data-testid="registration-password" type="password" autocomplete="new-password" minlength="6" maxlength="128" pattern="(?=.*[A-Za-z])(?=.*[0-9]).{6,128}" aria-describedby="registration-password-hint registration-error" required${invalid} /><small id="registration-password-hint">Mínimo 6 caracteres, con letras y números.</small></label>
+            <label for="registration-confirm">Confirma la clave<input id="registration-confirm" data-testid="registration-confirm" type="password" autocomplete="new-password" minlength="6" maxlength="128" required${invalid} /></label>
+            <button class="primary" type="submit" data-testid="registration-next">Continuar a organización</button>
+          </fieldset>
+          <fieldset class="registration-step" data-registration-step="organization" hidden disabled>
+            <legend class="sr-only">Organización y primera empresa</legend>
+            <div class="auth-heading">
+              <h3>Organización y primera empresa</h3>
+              <p>La organización agrupa usuarios y empresas. Podrás agregar más empresas después.</p>
+            </div>
+            <label for="registration-organization">Organización<input id="registration-organization" data-testid="registration-organization" autocomplete="organization" maxlength="160" required${invalid} /></label>
+            <label for="registration-company">Primera empresa<input id="registration-company" data-testid="registration-company" maxlength="160" required${invalid} /></label>
+            <label for="registration-industry">Industria o actividad<input id="registration-industry" data-testid="registration-industry" maxlength="240" placeholder="Ej. seguros, restaurante, salud" required${invalid} /></label>
+            <div class="registration-actions">
+              <button class="ghost" type="button" data-action="registration-back">Volver</button>
+              <button class="primary" type="submit" data-testid="registration-submit">Crear cuenta y entrar</button>
+            </div>
+          </fieldset>
+          <p class="error" id="registration-error" data-testid="registration-error" role="alert">${escapeHtml(message)}</p>
+        </form>`
+    : `<form class="login-card" data-action="login" data-testid="login-form" aria-describedby="login-error">
+          <h2 id="login-title">Entra a Pulse</h2>
+          <label for="login-user">Usuario<input id="login-user" data-testid="login-user" autocomplete="username" aria-describedby="login-error" required${invalid} /></label>
+          <label for="login-password">Clave<input id="login-password" data-testid="login-password" type="password" autocomplete="current-password" aria-describedby="login-error" required${invalid} /></label>
+          <button class="primary" type="submit" data-testid="login-submit">Entrar</button>
+          <p class="error" id="login-error" data-testid="login-error" role="alert">${escapeHtml(message)}</p>
+        </form>`;
+  const authSwitch = state.registrationEnabled
+    ? `<div class="auth-switch" aria-label="Acceso a Pulse">
+        <button type="button" data-action="show-login" aria-pressed="${registering ? "false" : "true"}">Entrar</button>
+        <button type="button" data-action="show-registration" aria-pressed="${registering ? "true" : "false"}">Crear cuenta</button>
+      </div>`
+    : "";
   app.innerHTML = `<main class="gate" id="contenido">
-    <a class="skip" href="#login-user">Saltar al acceso</a>
+    <a class="skip" href="#${registering ? "registration-name" : "login-user"}">Saltar al acceso</a>
     <div class="gate-frame">
       <header class="gate-story">
         <h1 class="lockup">${brandLockup()}</h1>
         <p class="lema">Un espacio para tus objetivos.</p>
-        <p class="lede">Pulse reúne la ficha, los agentes y la bandeja de cada empresa. Cada respuesta usa solo la ficha de esa cuenta.</p>
+        <p class="lede">Tu cuenta puede acceder a varias organizaciones y empresas. Cada respuesta usa solo la ficha de la empresa activa.</p>
         ${themeButton()}
       </header>
       <section class="gate-panel">
-        <form class="login-card" data-action="login" data-testid="login-form" aria-describedby="login-error">
-          <h2 id="login-title">Entra con tu empresa</h2>
-          <label for="login-user">Usuario<input id="login-user" data-testid="login-user" autocomplete="username" aria-describedby="login-error"${invalid} /></label>
-          <label for="login-password">Clave<input id="login-password" data-testid="login-password" type="password" autocomplete="current-password" aria-describedby="login-error"${invalid} /></label>
-          <button class="primary" type="submit" data-testid="login-submit">Entrar</button>
-          <p class="error" id="login-error" data-testid="login-error" role="alert">${escapeHtml(message)}</p>
-        </form>
-        <aside class="demo-logins" data-testid="demo-logins">
+        ${authSwitch}
+        ${accessForm}
+        <aside class="demo-logins" data-testid="demo-logins" ${registering ? "hidden" : ""}>
           <h2>Accesos de demostración</h2>
           <div class="demo-row">
             <strong>Cafetería Lumen</strong>
@@ -1140,13 +1288,74 @@ async function submitLogin() {
   state.view = "bandeja";
   renderInboxSkeleton();
   await load();
-  state.selectedCompanyId = state.companies[0]?.id || null;
   state.selectedPerson = null;
   state.filterChannel = "";
   ensureSelection();
   render();
   fillAccountSelect();
   startPolling();
+}
+
+async function submitRegistration() {
+  const password = document.querySelector("#registration-password").value;
+  const confirmation = document.querySelector("#registration-confirm").value;
+  if (password !== confirmation) {
+    throw new Error("Las claves no coinciden. Vuelve a escribirlas.");
+  }
+  await api("/api/registro", {
+    method: "POST",
+    body: JSON.stringify({
+      nombre: document.querySelector("#registration-name").value,
+      apellido: document.querySelector("#registration-last-name").value,
+      organizacion: document.querySelector("#registration-organization").value,
+      empresa: document.querySelector("#registration-company").value,
+      industria: document.querySelector("#registration-industry").value,
+      usuario: document.querySelector("#registration-user").value,
+      correo: document.querySelector("#registration-email").value,
+      clave: password,
+    }),
+  });
+  state.error = "";
+  state.view = "bandeja";
+  renderInboxSkeleton();
+  await load();
+  state.selectedPerson = null;
+  state.filterChannel = "";
+  ensureSelection();
+  render();
+  fillAccountSelect();
+  startPolling();
+}
+
+function advanceRegistration() {
+  const password = document.querySelector("#registration-password").value;
+  const confirmation = document.querySelector("#registration-confirm").value;
+  if (password !== confirmation) throw new Error("Las claves no coinciden. Vuelve a escribirlas.");
+  const form = document.querySelector('[data-testid="registration-form"]');
+  form.dataset.action = "register";
+  const userStep = document.querySelector('[data-registration-step="user"]');
+  const organizationStep = document.querySelector('[data-registration-step="organization"]');
+  userStep.hidden = true;
+  userStep.disabled = true;
+  organizationStep.hidden = false;
+  organizationStep.disabled = false;
+  document.querySelector('[data-testid="registration-progress"]').textContent = "Paso 2 de 2 · Organización y empresa";
+  document.querySelector("#registration-title").textContent = "Configura tu espacio";
+  document.querySelector("#registration-organization").focus();
+}
+
+function backToRegistrationUser() {
+  const form = document.querySelector('[data-testid="registration-form"]');
+  form.dataset.action = "registration-user";
+  const userStep = document.querySelector('[data-registration-step="user"]');
+  const organizationStep = document.querySelector('[data-registration-step="organization"]');
+  organizationStep.hidden = true;
+  organizationStep.disabled = true;
+  userStep.hidden = false;
+  userStep.disabled = false;
+  document.querySelector('[data-testid="registration-progress"]').textContent = "Paso 1 de 2 · Usuario";
+  document.querySelector("#registration-title").textContent = "Crea tu cuenta";
+  document.querySelector("#registration-name").focus();
 }
 
 function facebookReturn() {
@@ -1168,7 +1377,7 @@ function facebookReturn() {
     state.notice = "";
   }
   state.view = "ajustes";
-  state.settingsDraft = structuredClone(state.companies[0]?.ajustes || {});
+  state.settingsDraft = structuredClone(companyById(state.selectedCompanyId)?.ajustes || {});
   window.history.replaceState({}, "", "/");
 }
 
@@ -1191,16 +1400,16 @@ function instagramReturn() {
     state.notice = "";
   }
   state.view = "ajustes";
-  state.settingsDraft = structuredClone(state.companies[0]?.ajustes || {});
+  state.settingsDraft = structuredClone(companyById(state.selectedCompanyId)?.ajustes || {});
   window.history.replaceState({}, "", "/");
 }
 
 async function boot() {
   const slow = setTimeout(() => renderInboxSkeleton(), 180);
   try {
+    await loadPublicConfig();
     await load();
     clearTimeout(slow);
-    state.selectedCompanyId = state.companies[0]?.id || null;
     state.view = "bandeja";
     facebookReturn();
     instagramReturn();
@@ -1219,3 +1428,7 @@ async function boot() {
 }
 
 boot();
+
+if ("serviceWorker" in navigator && window.location.protocol === "https:") {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js").catch(() => {}));
+}

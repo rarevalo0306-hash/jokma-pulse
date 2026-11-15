@@ -1,5 +1,5 @@
 const LONG = new Set(["description", "products", "reply_guide", "person_profile"]);
-const WIDE = new Set(["n8n_webhook_url", "meta_app_secret", "facebook_page_token", "instagram_access_token"]);
+const WIDE = new Set(["meta_app_secret", "facebook_page_token", "instagram_access_token"]);
 
 export const MODELS = [{ id: "jokma-ficha", etiqueta: "Jokma Ficha" }];
 
@@ -17,15 +17,13 @@ export const PARAMETERS = [
 
 export const CONNECTIONS = [
   {
-    red: "Gmail",
-    filas: [{ nombre: "URL del webhook de n8n", api: "n8n_webhook_url" }],
-  },
-  {
     red: "Google",
     filas: [
       { nombre: "Identificador de cliente", api: "google_client_id" },
       { nombre: "Secreto de cliente", api: "google_client_secret", secreto: true },
       { nombre: "Token de actualización", api: "google_refresh_token", secreto: true },
+      { nombre: "Identificador de cuenta", api: "google_account_id" },
+      { nombre: "Identificador de ubicación", api: "google_location_id" },
     ],
   },
   {
@@ -51,14 +49,21 @@ export const CONNECTIONS = [
       { nombre: "Secreto de API", api: "x_api_secret", secreto: true },
       { nombre: "Token de acceso", api: "x_access_token", secreto: true },
       { nombre: "Secreto del token", api: "x_access_token_secret", secreto: true },
+      { nombre: "Identificador del usuario", api: "x_user_id" },
     ],
   },
   {
     red: "Correo",
     filas: [
-      { nombre: "Servidor", api: "smtp_host" },
+      { nombre: "Servidor SMTP", api: "smtp_host" },
+      { nombre: "Puerto SMTP", api: "smtp_port" },
+      { nombre: "TLS directo SMTP", api: "smtp_secure" },
       { nombre: "Usuario", api: "smtp_user" },
       { nombre: "Contraseña", api: "smtp_password", secreto: true },
+      { nombre: "Remitente", api: "email_from" },
+      { nombre: "Servidor IMAP", api: "imap_host" },
+      { nombre: "Puerto IMAP", api: "imap_port" },
+      { nombre: "TLS IMAP", api: "imap_secure" },
     ],
   },
 ];

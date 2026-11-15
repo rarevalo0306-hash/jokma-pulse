@@ -3,6 +3,7 @@ import http from "node:http";
 import test from "node:test";
 
 process.env.VERCEL = "1";
+process.env.PULSE_SESSION_SECRET = "test-only-session-secret-32-characters";
 const { default: app } = await import("../server.js");
 
 function listen(handler) {

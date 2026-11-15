@@ -227,6 +227,7 @@ export function readInstagramEvents(body) {
       if (!text) continue;
       events.push({
         igId,
+        senderId,
         canal: "instagram_dm",
         nombreCliente: senderId,
         texto: text,
@@ -244,6 +245,7 @@ export function readInstagramEvents(body) {
       const username = String(value.from?.username || senderId || "Instagram").replace(/^@/, "");
       events.push({
         igId,
+        senderId,
         canal: "instagram_comment",
         nombreCliente: username,
         texto: text,

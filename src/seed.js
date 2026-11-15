@@ -1,4 +1,5 @@
 import { snapshotFicha } from "./ficha.js";
+import { hashPassword } from "./auth.js";
 import { AGENT_TYPE, TONE_BY_CHANNEL } from "./tones.js";
 
 const LUMEN = {
@@ -11,8 +12,6 @@ const LUMEN = {
   correoOficial: "hola@cafelumen.mx",
   sitioWeb: "https://cafelumen.mx",
   soporte: "soporte@cafelumen.mx",
-  usuario: "lumen",
-  clave: "lumen123",
 };
 
 const ARCE = {
@@ -25,8 +24,6 @@ const ARCE = {
   correoOficial: "contacto@dentalarce.mx",
   sitioWeb: "https://dentalarce.mx",
   soporte: "+52 33 4500 2290",
-  usuario: "arce",
-  clave: "arce123",
 };
 
 function account(company, { id, canal, cuenta, agente }) {
@@ -56,18 +53,36 @@ function message({ id, cuentaId, empresaId, canal, nombreCliente, texto, calific
     calificacion,
     muestra,
     respuesta: null,
+    borrador: null,
+    estadoRespuesta: "sin_borrador",
     respondidoEn: null,
+    aprobadoEn: null,
     createdAt,
   };
 }
 
-export const DEMO_LOGINS = [
-  { id: "co-lumen", nombre: "Cafetería Lumen", usuario: "lumen", clave: "lumen123" },
-  { id: "co-arce", nombre: "Clínica Dental Arce", usuario: "arce", clave: "arce123" },
+export const DEMO_USERS = [
+  {
+    id: "usr-lumen",
+    nombre: "Equipo Lumen",
+    usuario: "lumen",
+    passwordHash: hashPassword("lumen123"),
+    empresaIds: ["co-lumen", "co-arce"],
+    empresaPredeterminadaId: "co-lumen",
+  },
+  {
+    id: "usr-arce",
+    nombre: "Equipo Arce",
+    usuario: "arce",
+    passwordHash: hashPassword("arce123"),
+    empresaIds: ["co-arce"],
+    empresaPredeterminadaId: "co-arce",
+  },
 ];
 
 export function buildSeed() {
   const companies = [structuredClone(LUMEN), structuredClone(ARCE)];
+  const users = structuredClone(DEMO_USERS);
   const accounts = [
     account(LUMEN, {
       id: "ac-lumen-reviews",
@@ -253,5 +268,5 @@ export function buildSeed() {
     }),
   ];
 
-  return { companies, accounts, messages };
+  return { users, companies, accounts, messages };
 }

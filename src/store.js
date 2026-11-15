@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { publicCompany, sameSecret } from "./auth.js";
+import { hashPassword, publicCompany, verifyPassword } from "./auth.js";
 import { snapshotFicha } from "./ficha.js";
-import { buildSeed, DEMO_LOGINS } from "./seed.js";
+import { buildSeed, DEMO_USERS } from "./seed.js";
+import { SECRET_SETTING_KEYS, splitSettings } from "./credentials.js";
 import { normalizeSettings } from "./settings.js";
 import { AGENT_TYPE, CHANNELS, isChannel, TONE_BY_CHANNEL } from "./tones.js";
 
@@ -64,18 +65,54 @@ export function createStore(dataPath) {
     parsed.companies ||= [];
     parsed.accounts ||= [];
     parsed.messages ||= [];
-    if (ensureDemoLogins(parsed)) save(parsed);
+    parsed.notes ||= [];
+    parsed.users ||= [];
+    const loginChanged = migrateLegacyLogins(parsed);
+    const usersChanged = ensureUsers(parsed);
+    const messagesChanged = normalizeMessages(parsed);
+    const changed = loginChanged || usersChanged || messagesChanged;
+    if (changed) save(parsed);
     return parsed;
   }
 
-  function ensureDemoLogins(state) {
+  function ensureUsers(state) {
+    if (state.users.length) return false;
+    state.users = structuredClone(DEMO_USERS);
+    return true;
+  }
+
+  function normalizeMessages(state) {
     let changed = false;
-    for (const demo of DEMO_LOGINS) {
-      const company = state.companies.find((item) => item.id === demo.id);
-      if (!company) continue;
-      if (!company.usuario || !company.clave) {
-        company.usuario = demo.usuario;
-        company.clave = demo.clave;
+    for (const message of state.messages) {
+      if (message.borrador === undefined) {
+        message.borrador = message.respuesta || null;
+        changed = true;
+      }
+      if (!message.estadoRespuesta) {
+        message.estadoRespuesta = message.borrador ? "borrador" : "sin_borrador";
+        changed = true;
+      }
+      if (message.aprobadoEn === undefined) {
+        message.aprobadoEn = null;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  function migrateLegacyLogins(state) {
+    let changed = false;
+    for (const company of state.companies) {
+      if (company.usuario !== undefined || company.clave !== undefined) {
+        delete company.usuario;
+        delete company.clave;
+        changed = true;
+      }
+    }
+    for (const user of state.users) {
+      if (!user.passwordHash && user.clave) {
+        user.passwordHash = hashPassword(user.clave);
+        delete user.clave;
         changed = true;
       }
     }
@@ -84,14 +121,39 @@ export function createStore(dataPath) {
 
   function presentCompany(company) {
     const pub = publicCompany(company);
-    pub.ajustes = normalizeSettings(company?.ajustes, company);
+    const { publicSettings } = splitSettings(company?.ajustes);
+    pub.ajustes = normalizeSettings(publicSettings, company);
+    pub.credenciales = Object.fromEntries(
+      [...SECRET_SETTING_KEYS].filter((key) => String(company?.ajustes?.[key] || "").trim()).map((key) => [key, true]),
+    );
     return pub;
   }
 
-  function scopedState(empresaId) {
+  function getCompanyWithSecrets(id) {
+    const company = load().companies.find((item) => item.id === id);
+    return company ? structuredClone(company) : null;
+  }
+
+  function getCompaniesWithSecrets() {
+    return load().companies.map((company) => structuredClone(company));
+  }
+
+  function userById(state, userId) {
+    return state.users.find((item) => item.id === userId) || null;
+  }
+
+  function canAccess(user, empresaId) {
+    return Boolean(user?.empresaIds?.includes(empresaId));
+  }
+
+  function scopedState(userId, empresaId) {
     const state = load();
+    const user = userById(state, userId);
+    if (!user || !canAccess(user, empresaId)) throw fail(403, "Esa empresa no está disponible para este usuario.");
     return {
-      companies: state.companies.filter((item) => item.id === empresaId).map(presentCompany),
+      user: { id: user.id, nombre: user.nombre, usuario: user.usuario },
+      activeCompanyId: empresaId,
+      companies: state.companies.filter((item) => user.empresaIds.includes(item.id)).map(presentCompany),
       accounts: state.accounts.filter((item) => item.empresaId === empresaId),
       messages: state.messages.filter((item) => item.empresaId === empresaId),
     };
@@ -102,11 +164,26 @@ export function createStore(dataPath) {
     const password = String(clave ?? "").trim();
     if (!user || !password) return null;
     const state = load();
-    const company = state.companies.find(
+    const authenticated = state.users.find(
       (item) => String(item.usuario || "").toLowerCase() === user,
     );
-    if (!company || !sameSecret(company.clave || "\0", password)) return null;
-    return publicCompany(company);
+    if (!authenticated || !verifyPassword(password, authenticated.passwordHash)) return null;
+    const companyId = authenticated.empresaPredeterminadaId || authenticated.empresaIds[0];
+    return {
+      user: { id: authenticated.id, nombre: authenticated.nombre, usuario: authenticated.usuario },
+      companyId,
+      companies: state.companies
+        .filter((item) => authenticated.empresaIds.includes(item.id))
+        .map(presentCompany),
+    };
+  }
+
+  function sessionAccess(userId, companyId) {
+    const state = load();
+    const user = userById(state, userId);
+    const company = state.companies.find((item) => item.id === companyId);
+    if (!user || !company || !canAccess(user, companyId)) return null;
+    return { user, company: presentCompany(company) };
   }
 
   function save(state) {
@@ -260,7 +337,7 @@ export function createStore(dataPath) {
     );
   }
 
-  function recordInstagramMessage({ igUserId, igId, canal, nombreCliente, texto, externalId, cuenta }) {
+  function recordInstagramMessage({ igUserId, igId, senderId, canal, nombreCliente, texto, externalId, cuenta }) {
     if (!isChannel(canal)) return null;
     const linked = String(igUserId || igId || "");
     if (!linked) return null;
@@ -301,15 +378,98 @@ export function createStore(dataPath) {
       canal,
       nombreCliente: nombre,
       texto: body,
+      direccionCliente: canal === "instagram_dm" ? clean(senderId, 80) : null,
       calificacion: null,
       muestra: null,
       respuesta: null,
+      borrador: null,
+      estadoRespuesta: "sin_borrador",
       respondidoEn: null,
+      aprobadoEn: null,
       createdAt: new Date().toISOString(),
     };
     state.messages.push(message);
     save(state);
     return message;
+  }
+
+  function recordFacebookMessage({ pageId, senderId, displayName, text, externalId }) {
+    const state = load();
+    const company = state.companies.find((item) => String(item.ajustes?.facebook_page_id || "") === String(pageId || ""));
+    if (!company) return null;
+    const account = state.accounts.find((item) => item.empresaId === company.id && item.canal === "facebook_messenger");
+    if (!account) return null;
+    const existing = state.messages.find((item) => externalId && item.externalId === externalId);
+    if (existing) return existing;
+    const message = createMessage({ cuentaId: account.id, nombreCliente: displayName, texto: text });
+    const refreshed = load();
+    const stored = refreshed.messages.find((item) => item.id === message.id);
+    stored.externalId = clean(externalId, 240) || null;
+    stored.direccionCliente = clean(senderId, 80);
+    save(refreshed);
+    return stored;
+  }
+
+  function recordEmailMessage({ accountAddress, fromAddress, displayName, subject, text, externalId }) {
+    const state = load();
+    const account = state.accounts.find(
+      (item) => item.canal === "email" && String(item.cuenta || "").trim().toLowerCase() === String(accountAddress || "").trim().toLowerCase(),
+    );
+    if (!account) return null;
+    const existing = state.messages.find((item) => externalId && item.externalId === externalId);
+    if (existing) return existing;
+    const message = {
+      id: `msg-${randomUUID()}`,
+      cuentaId: account.id,
+      empresaId: account.empresaId,
+      canal: "email",
+      nombreCliente: clean(displayName, 160) || clean(fromAddress, 160),
+      direccionCliente: clean(fromAddress, 320).toLowerCase(),
+      asunto: clean(subject, 300),
+      externalId: clean(externalId, 240) || null,
+      texto: String(text || "").trim().slice(0, 4000),
+      calificacion: null,
+      muestra: null,
+      respuesta: null,
+      borrador: null,
+      estadoRespuesta: "sin_borrador",
+      respondidoEn: null,
+      aprobadoEn: null,
+      createdAt: new Date().toISOString(),
+    };
+    if (!message.texto) return null;
+    state.messages.push(message);
+    save(state);
+    return message;
+  }
+
+  function recordGoogleReview(companyId, { externalId, displayName, text, rating }) {
+    const state = load();
+    const account = state.accounts.find((item) => item.empresaId === companyId && item.canal === "google_reviews");
+    if (!account) return null;
+    const existing = state.messages.find((item) => externalId && item.externalId === externalId);
+    if (existing) return existing;
+    const message = createMessage({ cuentaId: account.id, nombreCliente: displayName, texto: text, calificacion: rating });
+    const refreshed = load();
+    const stored = refreshed.messages.find((item) => item.id === message.id);
+    stored.externalId = clean(externalId, 240) || null;
+    save(refreshed);
+    return stored;
+  }
+
+  function recordXMessage(companyId, { externalId, participantId, displayName, text }) {
+    const state = load();
+    const account = state.accounts.find((item) => item.empresaId === companyId && item.canal === "x");
+    if (!account) return null;
+    const existing = state.messages.find((item) => externalId && item.externalId === externalId);
+    if (existing) return existing;
+    const message = createMessage({ cuentaId: account.id, nombreCliente: displayName, texto: text });
+    const refreshed = load();
+    const stored = refreshed.messages.find((item) => item.id === message.id);
+    stored.externalId = clean(externalId, 240) || null;
+    stored.direccionCliente = clean(participantId, 40);
+    save(refreshed);
+    return stored;
   }
 
   function createMessage(input) {
@@ -337,7 +497,10 @@ export function createStore(dataPath) {
       calificacion,
       muestra: null,
       respuesta: null,
+      borrador: null,
+      estadoRespuesta: "sin_borrador",
       respondidoEn: null,
+      aprobadoEn: null,
       createdAt: new Date().toISOString(),
     };
     state.messages.push(message);
@@ -361,13 +524,81 @@ export function createStore(dataPath) {
     const account = state.accounts.find((item) => item.id === message.cuentaId);
     if (!account) throw fail(404, "La cuenta de este mensaje ya no existe.");
     message.respuesta = respuesta;
+    message.borrador = respuesta;
+    message.estadoRespuesta = "borrador";
     message.respondidoEn = new Date().toISOString();
+    message.aprobadoEn = null;
     save(state);
     return { message, account };
   }
 
+  function saveDraft(id, draft) {
+    const state = load();
+    const message = state.messages.find((item) => item.id === id);
+    if (!message) throw fail(404, "No encontramos ese mensaje.");
+    const text = String(draft ?? "").trim().slice(0, 4000);
+    if (!text) throw fail(400, "El borrador necesita texto.");
+    message.borrador = text;
+    message.respuesta = text;
+    message.estadoRespuesta = "borrador";
+    message.respondidoEn = new Date().toISOString();
+    message.aprobadoEn = null;
+    save(state);
+    return message;
+  }
+
+  function approveDraft(id) {
+    const state = load();
+    const message = state.messages.find((item) => item.id === id);
+    if (!message) throw fail(404, "No encontramos ese mensaje.");
+    if (!String(message.borrador || "").trim()) throw fail(409, "Guarda un borrador antes de aprobarlo.");
+    message.estadoRespuesta = "aprobado";
+    message.aprobadoEn = new Date().toISOString();
+    save(state);
+    return message;
+  }
+
+  function markDelivery(id, deliveryState, { providerMessageId = "", error = "" } = {}) {
+    const state = load();
+    const message = state.messages.find((item) => item.id === id);
+    if (!message) throw fail(404, "No encontramos ese mensaje.");
+    const mapped = { sending: "enviando", sent: "enviado", delivered: "entregado", error: "error" }[deliveryState];
+    if (!mapped) throw fail(400, "El estado de entrega no es válido.");
+    message.estadoRespuesta = mapped;
+    message.providerMessageId = clean(providerMessageId, 500) || null;
+    message.errorEntrega = clean(error, 1000) || null;
+    save(state);
+    return message;
+  }
+
+  function updateConversation(messageId, input, userId) {
+    const state = load();
+    const message = state.messages.find((item) => item.id === messageId);
+    if (!message) throw fail(404, "No encontramos ese mensaje.");
+    const status = String(input?.status || "");
+    if (!new Set(["open", "pending", "closed"]).has(status)) throw fail(400, "El estado de conversación no es válido.");
+    message.estadoConversacion = status;
+    if (input?.assignedToMe !== undefined) message.asignadoA = input.assignedToMe ? userId : null;
+    save(state);
+    return message;
+  }
+
+  function addConversationNote(messageId, body, userId) {
+    const state = load();
+    const message = state.messages.find((item) => item.id === messageId);
+    if (!message) throw fail(404, "No encontramos ese mensaje.");
+    const text = String(body || "").trim().slice(0, 2000);
+    if (!text) throw fail(400, "La nota necesita texto.");
+    message.notas ||= [];
+    message.notas.push({ id: `note-${randomUUID()}`, texto: text, autor: userId, createdAt: new Date().toISOString() });
+    save(state);
+    return message;
+  }
+
   return {
     getState,
+    getCompanyWithSecrets,
+    getCompaniesWithSecrets,
     createCompany,
     updateCompany,
     updateSettings,
@@ -377,10 +608,20 @@ export function createStore(dataPath) {
     deleteAccount,
     createMessage,
     recordInstagramMessage,
+    recordFacebookMessage,
+    recordEmailMessage,
+    recordGoogleReview,
+    recordXMessage,
     deleteMessage,
     saveReply,
+    saveDraft,
+    approveDraft,
+    markDelivery,
+    updateConversation,
+    addConversationNote,
     scopedState,
     authenticate,
+    sessionAccess,
     channels: CHANNELS,
   };
 }

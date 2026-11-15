@@ -6,10 +6,21 @@
   "description": "Atención al cliente por empresa, cuenta y canal.",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "start:local": "node scripts/start-local.mjs",
+    "test": "node --test",
+    "supabase:auth:local": "node scripts/provision-local-auth.mjs",
+    "supabase:import:dry-run": "node scripts/import-supabase.mjs",
+    "supabase:backup:local": "node scripts/backup-local.mjs",
+    "supabase:backup:verify": "node scripts/verify-backup-local.mjs",
+    "verify:registration": "node scripts/verify-registration.mjs"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "@supabase/supabase-js": "2.119.0",
+    "express": "^4.21.2",
+    "imapflow": "2.11.0",
+    "mailparser": "3.14.3",
+    "nodemailer": "10.5.0",
+    "postgres": "4.1.1"
   },
   "devDependencies": {
     "puppeteer-core": "^24.15.0"

@@ -1,0 +1,2 @@
+-- Las cuentas de demostración se aprovisionarán mediante Supabase Auth.
+-- No guardar contraseñas, tokens ni claves de servicio en este archivo.

@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { normalizeSettings } from "./settings.js";
 
-export const GRAPH_VERSION = "v21.0";
+export const GRAPH_VERSION = "v27.0";
 export const REDIRECT_PATH = "/api/facebook/callback";
 export const PRODUCTION_REDIRECT = "https://jokma-pulse.vercel.app/api/facebook/callback";
 export const PULSE_REDIRECT = "https://pulse.jokma.app/api/facebook/callback";

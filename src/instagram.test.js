@@ -61,7 +61,6 @@ test("el canje guarda la cuenta de Instagram y no toca Facebook ni el correo", a
     meta_app_secret: "secreto-de-prueba",
     facebook_page_id: "999",
     facebook_page_token: "token-pagina",
-    n8n_webhook_url: "https://n8n.example/webhook/demo",
   });
   const account = await completeLogin({
     code: "codigo-de-prueba",
@@ -94,11 +93,13 @@ test("el canje guarda la cuenta de Instagram y no toca Facebook ni el correo", a
   const company = store.getState().companies.find((item) => item.id === "co-lumen");
   const saved = store.updateSettings("co-lumen", settingsWithInstagram(company, account));
   assert.equal(saved.ajustes.instagram_user_id, "1789001");
-  assert.equal(saved.ajustes.instagram_access_token, "token-ig-de-prueba");
+  assert.equal(saved.ajustes.instagram_access_token, "");
   assert.equal(saved.ajustes.meta_app_id, PULSE_APP_ID);
   assert.equal(saved.ajustes.facebook_page_id, "999");
-  assert.equal(saved.ajustes.facebook_page_token, "token-pagina");
-  assert.equal(saved.ajustes.n8n_webhook_url, "https://n8n.example/webhook/demo");
+  assert.equal(saved.ajustes.facebook_page_token, "");
+  const privateCompany = store.getCompanyWithSecrets("co-lumen");
+  assert.equal(privateCompany.ajustes.instagram_access_token, "token-ig-de-prueba");
+  assert.equal(privateCompany.ajustes.facebook_page_token, "token-pagina");
   assert.equal(saved.ajustes.x_api_key, "");
 });
 
@@ -146,6 +147,7 @@ test("un DM y un comentario entran en la empresa de esa cuenta y no se duplican"
 
 test("el webhook público acepta la verificación y un mensaje firmado", async () => {
   process.env.VERCEL = "1";
+  process.env.PULSE_SESSION_SECRET = "test-only-session-secret-32-characters";
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jokma-instagram-http-"));
   process.env.PULSE_DATA = path.join(dir, "pulse.json");
   const { default: app } = await import(`../server.js?instagram=${Date.now()}`);
@@ -204,7 +206,7 @@ test("el webhook público acepta la verificación y un mensaje firmado", async (
     assert.equal(message.canal, "instagram_dm");
     assert.equal(message.nombreCliente, "555");
     assert.equal(state.companies[0].ajustes.instagram_access_token, "");
-    assert.equal(state.companies[0].ajustes.meta_app_secret, secret);
+    assert.equal(state.companies[0].ajustes.meta_app_secret, "");
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

@@ -16,6 +16,7 @@ test("changePassword verifica la clave actual antes de actualizar", async () => 
       ? { user: { id: "usr-1" } }
       : null,
     createAuthClient: () => ({ auth: {} }),
+    sendRecoveryEmail: async () => {},
   });
   await assert.rejects(
     security.changePassword({ id: "usr-1", usuario: "ricardo" }, { claveActual: "mala", claveNueva: "nueva1" }),
@@ -42,19 +43,45 @@ test("requestPasswordReset acepta usuario o correo sin revelar cuentas inexisten
     auth: { admin: {
       async getUserById() { return { data: { user: { email: "ricardo@example.com" } }, error: null }; },
       async updateUserById() { return { error: null }; },
+      async generateLink({ email }) { return { data: { properties: { hashed_token: `hash-${email}` } }, error: null }; },
     } },
   };
   const security = createAccountSecurity({
     admin,
     authenticate: async () => null,
-    createAuthClient: () => ({ auth: {
-      async resetPasswordForEmail(email, options) { sent.push([email, options.redirectTo]); return { error: null }; },
-    } }),
+    createAuthClient: () => ({ auth: {} }),
+    async sendRecoveryEmail(input) { sent.push(input); },
   });
-  assert.deepEqual(await security.requestPasswordReset({ identificador: "Ricardo" }, "https://pulse.jokma.app/?recuperar=1"), { ok: true });
-  assert.deepEqual(sent[0], ["ricardo@example.com", "https://pulse.jokma.app/?recuperar=1"]);
-  await security.requestPasswordReset({ identificador: "otra@example.com" }, "https://pulse.jokma.app/?recuperar=1");
-  assert.equal(sent[1][0], "otra@example.com");
+  const linkFactory = (token) => `https://pulse.jokma.app/api/cuenta/confirmar-recuperacion?token_hash=${token}`;
+  assert.deepEqual(await security.requestPasswordReset({ identificador: "Ricardo" }, linkFactory), { ok: true });
+  assert.deepEqual(sent[0], {
+    to: "ricardo@example.com",
+    link: "https://pulse.jokma.app/api/cuenta/confirmar-recuperacion?token_hash=hash-ricardo@example.com",
+  });
+  await security.requestPasswordReset({ identificador: "otra@example.com" }, linkFactory);
+  assert.equal(sent[1].to, "otra@example.com");
+});
+
+test("requestPasswordReset conserva la respuesta genérica cuando falla el SMTP", async () => {
+  const security = createAccountSecurity({
+    admin: { auth: { admin: {
+      async generateLink() {
+        return { data: { properties: { hashed_token: "hash-seguro" } }, error: null };
+      },
+    } } },
+    authenticate: async () => null,
+    createAuthClient: () => ({ auth: {} }),
+    async sendRecoveryEmail() {
+      throw new Error("SMTP de prueba no disponible");
+    },
+  });
+  assert.deepEqual(
+    await security.requestPasswordReset(
+      { identificador: "persona@example.com" },
+      (token) => `https://pulse.jokma.app/api/cuenta/confirmar-recuperacion?token_hash=${token}`,
+    ),
+    { ok: true, deliveryFailed: true },
+  );
 });
 
 test("resetPassword exige una sesión del enlace y actualiza mediante Supabase Auth", async () => {
@@ -67,6 +94,7 @@ test("resetPassword exige una sesión del enlace y actualiza mediante Supabase A
       async updateUser(input) { calls.push(["update", input]); return { data: {}, error: null }; },
       async signOut(input) { calls.push(["signout", input]); return { error: null }; },
     } }),
+    sendRecoveryEmail: async () => {},
   });
   assert.deepEqual(await security.resetPassword({ accessToken: "access", refreshToken: "refresh", claveNueva: "nueva1" }), { ok: true });
   assert.deepEqual(calls, [
@@ -74,4 +102,19 @@ test("resetPassword exige una sesión del enlace y actualiza mediante Supabase A
     ["update", { password: "nueva1" }],
     ["signout", { scope: "local" }],
   ]);
+});
+
+test("confirmPasswordReset intercambia el hash por una sesión de recuperación", async () => {
+  const security = createAccountSecurity({
+    admin: { auth: { admin: { async updateUserById() { return { error: null }; } } } },
+    authenticate: async () => null,
+    createAuthClient: () => ({ auth: {
+      async verifyOtp(input) {
+        assert.deepEqual(input, { token_hash: "hash-seguro", type: "recovery" });
+        return { data: { session: { access_token: "access", refresh_token: "refresh" } }, error: null };
+      },
+    } }),
+    sendRecoveryEmail: async () => {},
+  });
+  assert.deepEqual(await security.confirmPasswordReset("hash-seguro"), { accessToken: "access", refreshToken: "refresh" });
 });

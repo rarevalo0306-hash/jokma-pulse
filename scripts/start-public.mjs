@@ -31,6 +31,37 @@ function keychainSecret(service) {
   return value;
 }
 
+function recoverySmtpEnvironment() {
+  const result = command("/usr/bin/security", [
+    "find-generic-password",
+    "-a",
+    account,
+    "-s",
+    "app.jokma.pulse.recovery-smtp",
+    "-w",
+  ]);
+  if (result.status !== 0 || !String(result.stdout || "").trim()) {
+    return { PULSE_EMAIL_RECOVERY_ENABLED: "false" };
+  }
+  try {
+    const configuration = JSON.parse(result.stdout.trim());
+    if (!configuration.host || !configuration.from || (configuration.user && !configuration.password)) {
+      return { PULSE_EMAIL_RECOVERY_ENABLED: "false" };
+    }
+    return {
+      PULSE_EMAIL_RECOVERY_ENABLED: "true",
+      PULSE_RECOVERY_SMTP_HOST: String(configuration.host),
+      PULSE_RECOVERY_SMTP_PORT: String(configuration.port || 587),
+      PULSE_RECOVERY_SMTP_SECURE: configuration.secure ? "true" : "false",
+      PULSE_RECOVERY_SMTP_USER: String(configuration.user || ""),
+      PULSE_RECOVERY_SMTP_PASSWORD: String(configuration.password || ""),
+      PULSE_RECOVERY_EMAIL_FROM: String(configuration.from),
+    };
+  } catch {
+    return { PULSE_EMAIL_RECOVERY_ENABLED: "false" };
+  }
+}
+
 function ensureLocalServices() {
   if (command("/opt/homebrew/bin/colima", ["status"]).status !== 0) {
     const started = command("/opt/homebrew/bin/colima", ["start"], { timeout: 180_000 });
@@ -55,6 +86,7 @@ try {
       PULSE_FACEBOOK_STATE_SECRET: keychainSecret("app.jokma.pulse.facebook-state"),
       PULSE_SESSION_SECRET: keychainSecret("app.jokma.pulse.session"),
       PULSE_SIGNUP_INVITE: keychainSecret("app.jokma.pulse.signup-invite"),
+      ...recoverySmtpEnvironment(),
     },
   });
 

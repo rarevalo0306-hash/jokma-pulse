@@ -56,7 +56,7 @@ try {
   assert.equal(requested.ok, true);
   const message = await recoveryMessage();
   const source = `${message.HTML || ""}\n${message.Text || ""}`.replaceAll("&amp;", "&");
-  const link = source.match(/https?:\/\/[^\s"'<>]+type=recovery[^\s"'<>]*/i)?.[0];
+  const link = source.match(/https?:\/\/[^\s"'<>]+confirmar-recuperacion\?token_hash=[^\s"'<>]*/i)?.[0];
   assert.ok(link, "El correo no contiene el enlace de recuperación.");
   const verified = await fetch(link, { redirect: "manual" });
   assert.ok([302, 303].includes(verified.status));

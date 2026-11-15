@@ -16,8 +16,8 @@ export function validateNewPassword(value) {
   return password;
 }
 
-export function createAccountSecurity({ admin, authenticate, createAuthClient } = {}) {
-  if (!admin?.auth?.admin || typeof authenticate !== "function" || typeof createAuthClient !== "function") {
+export function createAccountSecurity({ admin, authenticate, createAuthClient, sendRecoveryEmail } = {}) {
+  if (!admin?.auth?.admin || typeof authenticate !== "function" || typeof createAuthClient !== "function" || typeof sendRecoveryEmail !== "function") {
     throw new Error("La seguridad de la cuenta necesita Supabase Auth.");
   }
 
@@ -31,13 +31,34 @@ export function createAccountSecurity({ admin, authenticate, createAuthClient } 
     return user.data?.user?.email?.toLowerCase() || "";
   }
 
-  async function requestPasswordReset(input = {}, redirectTo) {
+  async function requestPasswordReset(input = {}, linkFactory) {
     const email = await recoveryEmail(input.identificador);
     if (!email) return { ok: true };
-    const client = createAuthClient();
-    const result = await client.auth.resetPasswordForEmail(email, { redirectTo });
-    if (result.error) throw fail(503, "No pudimos enviar el correo de recuperación. Inténtalo nuevamente.");
+    const generated = await admin.auth.admin.generateLink({ type: "recovery", email });
+    if (generated.error || !generated.data?.properties?.hashed_token) {
+      return { ok: true, deliveryFailed: !["user_not_found", "email_not_found"].includes(String(generated.error?.code || "")) };
+    }
+    try {
+      await sendRecoveryEmail({
+        to: email,
+        link: linkFactory(generated.data.properties.hashed_token),
+      });
+    } catch {
+      return { ok: true, deliveryFailed: true };
+    }
     return { ok: true };
+  }
+
+  async function confirmPasswordReset(tokenHash) {
+    const token = clean(tokenHash, 500);
+    if (!token) throw fail(400, "El enlace de recuperación está incompleto.");
+    const client = createAuthClient();
+    const verified = await client.auth.verifyOtp({ token_hash: token, type: "recovery" });
+    const session = verified.data?.session;
+    if (verified.error || !session?.access_token || !session?.refresh_token) {
+      throw fail(410, "El enlace de recuperación venció o ya no es válido.");
+    }
+    return { accessToken: session.access_token, refreshToken: session.refresh_token };
   }
 
   async function resetPassword(input = {}) {
@@ -66,5 +87,5 @@ export function createAccountSecurity({ admin, authenticate, createAuthClient } 
     return { ok: true };
   }
 
-  return { changePassword, requestPasswordReset, resetPassword };
+  return { changePassword, requestPasswordReset, confirmPasswordReset, resetPassword };
 }

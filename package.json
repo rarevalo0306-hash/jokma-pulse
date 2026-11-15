@@ -9,6 +9,7 @@
     "start:local": "node scripts/start-local.mjs",
     "start:public": "node scripts/start-public.mjs",
     "admin:reset-password": "node scripts/admin-reset-password.mjs",
+    "configure:recovery-email": "node scripts/configure-recovery-email.mjs",
     "test": "node --test",
     "supabase:auth:local": "node scripts/provision-local-auth.mjs",
     "supabase:import:dry-run": "node scripts/import-supabase.mjs",

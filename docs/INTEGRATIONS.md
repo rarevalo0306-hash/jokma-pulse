@@ -17,7 +17,7 @@ El usuario todavía debe completar el whitelist de OAuth de Instagram en Meta. N
 
 La bandeja lee mensajes no vistos por IMAP y envía respuestas aprobadas por SMTP. Se configuran host, puerto, TLS, usuario, contraseña y remitente desde Ajustes. La contraseña nunca vuelve al navegador.
 
-El correo de recuperación de acceso es un servicio distinto del correo de cada empresa. Supabase Auth necesita un remitente SMTP global y `PULSE_EMAIL_RECOVERY_ENABLED=true`; no debe reutilizar automáticamente la cuenta de una empresa. En desarrollo, Mailpit captura estos correos sin enviarlos a Internet.
+El correo de recuperación de acceso es un servicio distinto del correo de cada empresa. Pulse genera el token mediante Supabase Auth, pero envía el enlace público con un remitente SMTP global; no reutiliza automáticamente la cuenta de una empresa. La configuración real se guarda como una sola entrada protegida del llavero de macOS mediante `npm run configure:recovery-email`. En desarrollo, Mailpit captura estos correos sin enviarlos a Internet.
 
 ## Google Reviews
 

@@ -10,6 +10,7 @@ import { createCredentialStore } from "./src/credentials.js";
 import { createRegistrationService, registrationEnabled } from "./src/registration.js";
 import { createAccountSecurity } from "./src/account-security.js";
 import { createTeamService } from "./src/team.js";
+import { createRecoveryMailer } from "./src/recovery-email.js";
 import { sendEmailReply, syncEmailInbox } from "./src/email.js";
 import { listGoogleReviews, replyGoogleReview } from "./src/google-reviews.js";
 import { listXMessages, sendXMessage } from "./src/x.js";
@@ -47,13 +48,17 @@ const store = usingSupabase
     })
   : jsonStore;
 const allowRegistration = registrationEnabled();
-const emailRecoveryEnabled = usingSupabase && String(process.env.PULSE_EMAIL_RECOVERY_ENABLED || "").toLowerCase() === "true";
+const recoveryMailer = createRecoveryMailer();
+const emailRecoveryEnabled = usingSupabase
+  && recoveryMailer.configured
+  && String(process.env.PULSE_EMAIL_RECOVERY_ENABLED || "").toLowerCase() === "true";
 const registration = allowRegistration ? createRegistrationService({ admin: supabaseAdmin }) : null;
 const accountSecurity = usingSupabase
   ? createAccountSecurity({
       admin: supabaseAdmin,
       authenticate: (username, password) => store.authenticate(username, password),
       createAuthClient: () => createSupabaseAuthClient(),
+      sendRecoveryEmail: (message) => recoveryMailer.send(message),
     })
   : null;
 const team = usingSupabase ? createTeamService({ admin: supabaseAdmin }) : null;
@@ -213,10 +218,33 @@ app.post("/api/cuenta/recuperar", limitRecovery, async (req, res) => {
       vercel: Boolean(process.env.VERCEL),
       proto: req.headers["x-forwarded-proto"] || req.protocol,
     });
-    await accountSecurity.requestPasswordReset(req.body || {}, `${origin}/?recuperar=1`);
+    const result = await accountSecurity.requestPasswordReset(
+      req.body || {},
+      (tokenHash) => `${origin}/api/cuenta/confirmar-recuperacion?token_hash=${encodeURIComponent(tokenHash)}`,
+    );
+    if (result.deliveryFailed) console.error(new Error("Falló el envío de un correo de recuperación."));
     res.json({ ok: true, mensaje: "Si la cuenta existe, recibirás un enlace para elegir una clave nueva." });
   } catch (error) {
     fail(res, error);
+  }
+});
+
+app.get("/api/cuenta/confirmar-recuperacion", limitRecovery, async (req, res) => {
+  const origin = requestOrigin(req.headers.host, {
+    vercel: Boolean(process.env.VERCEL),
+    proto: req.headers["x-forwarded-proto"] || req.protocol,
+  });
+  try {
+    if (!accountSecurity) throw Object.assign(new Error("La recuperación por correo no está disponible."), { status: 503 });
+    const tokens = await accountSecurity.confirmPasswordReset(req.query?.token_hash);
+    const fragment = new URLSearchParams({
+      access_token: tokens.accessToken,
+      refresh_token: tokens.refreshToken,
+      type: "recovery",
+    });
+    res.redirect(303, `${origin}/?recuperar=1#${fragment}`);
+  } catch {
+    res.redirect(303, `${origin}/?recuperar=1`);
   }
 });
 

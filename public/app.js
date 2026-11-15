@@ -25,6 +25,10 @@ const state = {
   inviteRequired: false,
   recoveryEmailEnabled: false,
   loginNotice: "",
+  team: null,
+  invitationToken: "",
+  invitationPreview: null,
+  invitationLink: "",
 };
 
 let knownMessageIds = null;
@@ -196,7 +200,7 @@ function stopPolling() {
 }
 
 async function refreshMessages() {
-  if (refreshing || !document.querySelector("[data-testid='logout']")) return;
+  if (refreshing || state.view !== "bandeja" || !document.querySelector("[data-testid='logout']")) return;
   refreshing = true;
   try {
     const arrived = await load();
@@ -205,7 +209,7 @@ async function refreshMessages() {
     playDoublePing();
     const active = document.activeElement;
     const typing = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
-    if (!typing && state.view !== "login") {
+    if (!typing && state.view === "bandeja") {
       ensureSelection();
       render();
       fillAccountSelect();
@@ -253,6 +257,26 @@ async function api(url, options) {
   return payload;
 }
 
+async function copyText(text) {
+  if (!String(text || "").trim()) return false;
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = text;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.append(input);
+    input.select();
+    let copied = false;
+    try { copied = document.execCommand("copy"); } catch { copied = false; }
+    input.remove();
+    return copied;
+  }
+}
+
 async function load() {
   const payload = await api("/api/estado");
   state.user = payload.user || null;
@@ -287,6 +311,30 @@ async function loadPublicConfig() {
     state.inviteRequired = false;
     state.recoveryEmailEnabled = false;
   }
+}
+
+async function loadInvitation() {
+  const token = new URLSearchParams(window.location.search).get("invitacion") || "";
+  if (!token) return;
+  state.invitationToken = token;
+  try {
+    state.invitationPreview = await api(`/api/invitaciones/vista?token=${encodeURIComponent(token)}`);
+    window.history.replaceState({}, "", "/");
+  } catch (error) {
+    state.invitationToken = "";
+    state.invitationPreview = null;
+    state.loginNotice = error.message;
+    window.history.replaceState({}, "", "/");
+  }
+}
+
+async function loadTeam() {
+  const role = state.user?.rolesOrganizacion?.[state.selectedOrganizationId];
+  if (!["owner", "admin"].includes(role)) {
+    state.team = null;
+    return;
+  }
+  state.team = await api(`/api/organizaciones/${state.selectedOrganizationId}/equipo`);
 }
 
 function setDraftFromCompany(company) {
@@ -392,6 +440,73 @@ function workspaceBar() {
   </header>`;
 }
 
+function roleLabel(role) {
+  return role === "owner" ? "Propietario" : role === "admin" ? "Administrador" : "Agente";
+}
+
+function teamSection(organization, organizationRole) {
+  if (!["owner", "admin"].includes(organizationRole)) {
+    return `<section class="panel team-panel"><h3>Equipo</h3><p class="hint">Los propietarios y administradores gestionan aquí los miembros y el acceso a empresas.</p></section>`;
+  }
+  if (!state.team) {
+    return `<section class="panel team-panel" aria-busy="true"><h3>Equipo</h3><p class="hint">Cargando miembros…</p></section>`;
+  }
+  const companyChecks = (selected = [], prefix = "invite") => state.team.companies.map((company) => `
+    <label class="access-check" for="${prefix}-${escapeHtml(company.id)}">
+      <input id="${prefix}-${escapeHtml(company.id)}" type="checkbox" name="empresaIds" value="${escapeHtml(company.id)}"${selected.includes(company.id) ? " checked" : ""} />
+      <span>${escapeHtml(company.nombre)}</span>
+    </label>`).join("");
+  const members = state.team.members.map((member) => {
+    const isOwner = member.rol === "owner";
+    const canEdit = !isOwner && (organizationRole === "owner" || member.rol === "agent");
+    const status = member.activo ? "Activo" : "Suspendido";
+    return `<article class="member-row${member.activo ? "" : " is-suspended"}">
+      <div class="member-identity">
+        <span class="user-avatar" aria-hidden="true">${escapeHtml((member.nombre || "U").slice(0, 1))}</span>
+        <div><strong>${escapeHtml(member.nombre)}</strong><span>@${escapeHtml(member.usuario)} · ${escapeHtml(member.correo)}</span></div>
+        <span class="pill">${escapeHtml(status)}</span>
+      </div>
+      <form class="member-form" data-action="update-member" data-user-id="${escapeHtml(member.id)}">
+        <label>Rol
+          <select name="rol"${canEdit ? "" : " disabled"}>
+            ${isOwner ? '<option value="owner">Propietario</option>' : `<option value="agent"${member.rol === "agent" ? " selected" : ""}>Agente</option><option value="admin"${member.rol === "admin" ? " selected" : ""}>Administrador</option>`}
+          </select>
+        </label>
+        <fieldset class="company-access"${canEdit ? "" : " disabled"}>
+          <legend>Empresas disponibles</legend>
+          ${companyChecks(member.empresaIds, `member-${member.id}`)}
+        </fieldset>
+        ${canEdit ? `<div class="member-actions">
+          <button class="primary" type="submit" data-intent="save">Guardar acceso</button>
+          <button class="ghost" type="submit" data-intent="${member.activo ? "suspend" : "reactivate"}">${member.activo ? "Suspender" : "Reactivar"}</button>
+          ${organizationRole === "owner" && member.activo ? '<button class="ghost transfer-button" type="submit" data-intent="transfer">Transferir propiedad</button>' : ""}
+        </div>` : `<p class="hint">${isOwner ? "La propiedad solo cambia mediante una transferencia." : "Solo el propietario puede modificar a este administrador."}</p>`}
+      </form>
+    </article>`;
+  }).join("");
+  const invitations = state.team.invitations.map((invitation) => `<li>
+    <div><strong>${escapeHtml(invitation.correo)}</strong><span>${escapeHtml(roleLabel(invitation.rol))} · vence ${escapeHtml(formatWhen(invitation.venceEn))}</span></div>
+    <button type="button" class="tiny" data-action="revoke-invitation" data-id="${escapeHtml(invitation.id)}">Revocar</button>
+  </li>`).join("");
+  const roleOptions = organizationRole === "owner"
+    ? '<option value="agent">Agente</option><option value="admin">Administrador</option>'
+    : '<option value="agent">Agente</option>';
+  return `<section class="panel team-panel">
+    <div class="space-heading"><div><h3>Equipo</h3><p>${state.team.members.length} ${state.team.members.length === 1 ? "miembro" : "miembros"} en ${escapeHtml(organization?.nombre || "esta organización")}</p></div><span class="pill">${escapeHtml(roleLabel(organizationRole))}</span></div>
+    <form class="invite-form" data-action="invite-member" data-testid="invite-member-form">
+      <div class="invite-fields">
+        <label>Correo del nuevo miembro<input name="correo" type="email" autocomplete="email" maxlength="254" required /></label>
+        <label>Rol<select name="rol">${roleOptions}</select></label>
+      </div>
+      <fieldset class="company-access"><legend>Acceso inicial a empresas</legend>${companyChecks([], "invite")}</fieldset>
+      <button class="primary" type="submit" data-testid="invite-member-submit">Crear invitación</button>
+    </form>
+    ${state.invitationLink ? `<div class="invitation-result" role="status"><div><strong>Invitación lista</strong><span>Compártela por un canal privado. Por seguridad, el enlace solo se muestra ahora.</span></div><button class="ghost" type="button" data-action="copy-invitation">Copiar enlace</button></div>` : ""}
+    <div class="team-list">${members || '<p class="hint">Aún no hay miembros.</p>'}</div>
+    <div><h4>Invitaciones pendientes</h4><ul class="space-company-list pending-invitations">${invitations || "<li>No hay invitaciones pendientes.</li>"}</ul></div>
+  </section>`;
+}
+
 function spacesView() {
   const organization = organizationById(state.selectedOrganizationId);
   const organizationRole = state.user?.rolesOrganizacion?.[organization?.id] || "agent";
@@ -429,6 +544,7 @@ function spacesView() {
           <button class="primary span-2" type="submit" data-testid="create-organization-submit">Crear organización</button>
         </form>
       </section>
+      ${teamSection(organization, organizationRole)}
       <section class="panel security-panel">
         <h3>Seguridad de la cuenta</h3>
         <p class="hint">Cambia la clave de tu usuario. Al terminar tendrás que entrar nuevamente en todos tus dispositivos.</p>
@@ -859,6 +975,7 @@ app.addEventListener("submit", async (event) => {
   const busy = {
     login: ["[data-testid='login-submit']", "Entrando"],
     register: ["[data-testid='registration-submit']", "Creando cuenta"],
+    "register-invited": ["[data-testid='registration-submit']", "Creando usuario"],
     "save-company": ["[data-testid='save-company']", "Guardando"],
     "save-account-new": ["[data-testid='save-account']", "Agregando"],
     "save-message": ["[data-testid='save-message']", "Agregando"],
@@ -866,6 +983,7 @@ app.addEventListener("submit", async (event) => {
     "create-company": ["[data-testid='create-company-submit']", "Creando empresa"],
     "create-organization": ["[data-testid='create-organization-submit']", "Creando organización"],
     "change-password": ["[data-testid='change-password-submit']", "Cambiando clave"],
+    "invite-member": ["[data-testid='invite-member-submit']", "Creando invitación"],
   }[action];
   if (busy) setControlBusy(busy[0], true, busy[1]);
   try {
@@ -873,6 +991,7 @@ app.addEventListener("submit", async (event) => {
     if (action === "login") await submitLogin();
     if (action === "registration-user") advanceRegistration();
     if (action === "register") await submitRegistration();
+    if (action === "register-invited") await submitInvitedRegistration();
     if (action === "save-company") await saveCompany();
     if (action === "save-account-new") await createAccount();
     if (action === "save-message") await createMessage();
@@ -880,8 +999,10 @@ app.addEventListener("submit", async (event) => {
     if (action === "create-company") await createSpaceCompany();
     if (action === "create-organization") await createOrganization();
     if (action === "change-password") await changePassword();
+    if (action === "invite-member") await inviteMember(form);
+    if (action === "update-member") await updateMember(form, event.submitter?.dataset.intent || "save");
   } catch (error) {
-    if (["login", "registration-user", "register"].includes(action)) {
+    if (["login", "registration-user", "register", "register-invited"].includes(action)) {
       const registering = action !== "login";
       setControlBusy(registering ? "[data-testid='registration-submit']" : "[data-testid='login-submit']", false);
       const node = document.querySelector(registering ? '[data-testid="registration-error"]' : '[data-testid="login-error"]');
@@ -894,7 +1015,7 @@ app.addEventListener("submit", async (event) => {
       }
       return;
     }
-    if (["create-company", "create-organization", "change-password"].includes(action)) {
+    if (["create-company", "create-organization", "change-password", "invite-member", "update-member"].includes(action)) {
       state.error = error.message;
       state.view = "espacios";
       render();
@@ -984,6 +1105,8 @@ app.addEventListener("click", async (event) => {
       state.mobilePane = "list";
       state.user = null;
       state.settingsDraft = null;
+      state.team = null;
+      state.invitationLink = "";
       state.error = "";
       state.notice = "";
       renderLogin();
@@ -997,6 +1120,8 @@ app.addEventListener("click", async (event) => {
       state.view = "espacios";
       state.notice = "";
       state.error = "";
+      state.invitationLink = "";
+      await loadTeam();
       render();
     } else if (action === "open-company") {
       state.view = "empresa";
@@ -1006,6 +1131,15 @@ app.addEventListener("click", async (event) => {
       render();
     } else if (action === "switch-company") {
       await switchCompany(button.dataset.id);
+    } else if (action === "revoke-invitation") {
+      await api(`/api/organizaciones/${state.selectedOrganizationId}/invitaciones/${button.dataset.id}`, { method: "DELETE" });
+      await loadTeam();
+      state.notice = "Invitación revocada.";
+      render();
+    } else if (action === "copy-invitation") {
+      const copied = await copyText(state.invitationLink);
+      state.notice = copied ? "Enlace de invitación copiado." : "Selecciona y copia el enlace manualmente.";
+      render();
     } else if (action === "delete-account") {
       if (!window.confirm("¿Quitar esta cuenta? Esta acción no se puede deshacer.")) return;
       await api(`/api/cuentas/${button.dataset.id}`, { method: "DELETE" });
@@ -1199,6 +1333,7 @@ async function switchCompany(companyId) {
   state.mobilePane = "list";
   state.settingsDraft = null;
   await load();
+  if (state.view === "espacios") await loadTeam();
   ensureSelection();
   render();
   fillAccountSelect();
@@ -1213,6 +1348,7 @@ async function createSpaceCompany() {
     }),
   });
   await load();
+  await loadTeam();
   state.view = "espacios";
   state.notice = "Empresa creada y activada.";
   render();
@@ -1228,8 +1364,55 @@ async function createOrganization() {
     }),
   });
   await load();
+  await loadTeam();
   state.view = "espacios";
   state.notice = "Organización creada con su primera empresa.";
+  render();
+}
+
+async function inviteMember(form) {
+  const data = new FormData(form);
+  const result = await api(`/api/organizaciones/${state.selectedOrganizationId}/invitaciones`, {
+    method: "POST",
+    body: JSON.stringify({
+      correo: data.get("correo"),
+      rol: data.get("rol"),
+      empresaIds: data.getAll("empresaIds"),
+    }),
+  });
+  state.invitationLink = result.enlace;
+  await loadTeam();
+  state.notice = "Invitación creada. Copia el enlace y compártelo por un canal privado.";
+  render();
+}
+
+async function updateMember(form, intent) {
+  const userId = form.dataset.userId;
+  const data = new FormData(form);
+  if (intent === "transfer") {
+    if (!window.confirm("¿Transferir la propiedad de esta organización? Tu rol cambiará a administrador.")) return;
+    await api(`/api/organizaciones/${state.selectedOrganizationId}/transferir`, {
+      method: "POST",
+      body: JSON.stringify({ usuarioId: userId }),
+    });
+    await load();
+    await loadTeam();
+    state.notice = "Propiedad transferida.";
+    render();
+    return;
+  }
+  const active = intent !== "suspend";
+  if (!active && !window.confirm("¿Suspender este miembro? Perderá acceso a todas las empresas de esta organización.")) return;
+  await api(`/api/organizaciones/${state.selectedOrganizationId}/miembros/${userId}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      rol: data.get("rol"),
+      activo: active,
+      empresaIds: data.getAll("empresaIds"),
+    }),
+  });
+  await loadTeam();
+  state.notice = active ? "Acceso del miembro actualizado." : "Miembro suspendido.";
   render();
 }
 
@@ -1367,10 +1550,27 @@ function renderLogin(message = "") {
   app.dataset.ready = "true";
   app.dataset.testid = "app-ready";
   const invalid = message ? ` aria-invalid="true"` : "";
-  const registering = state.registrationEnabled && state.authMode === "register";
+  const invitation = state.invitationPreview;
+  const registering = (state.registrationEnabled || invitation) && state.authMode === "register";
+  const invitedRegistration = Boolean(registering && invitation);
   const recovering = state.authMode === "recover";
-  const accessForm = registering
-    ? `<form class="login-card registration-card" data-action="registration-user" data-testid="registration-form" aria-describedby="registration-error">
+  const accessForm = invitedRegistration
+    ? `<form class="login-card registration-card" data-action="register-invited" data-testid="registration-form" aria-describedby="registration-error">
+          <div class="auth-heading">
+            <h2 id="registration-title">Únete al equipo</h2>
+            <p>Crea tu usuario personal. Entrarás a <strong>${escapeHtml(invitation.organizacion.nombre)}</strong> con acceso a ${invitation.empresas.map((company) => escapeHtml(company.nombre)).join(", ")}.</p>
+          </div>
+          <label for="registration-name">Nombre<input id="registration-name" data-testid="registration-name" autocomplete="given-name" maxlength="60" required${invalid} /></label>
+          <label for="registration-last-name">Apellido<input id="registration-last-name" data-testid="registration-last-name" autocomplete="family-name" maxlength="60" required${invalid} /></label>
+          <label for="registration-user">Usuario<input id="registration-user" data-testid="registration-user" autocomplete="username" minlength="3" maxlength="40" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{2,39}" required${invalid} /></label>
+          <label for="registration-email">Correo de la invitación<input id="registration-email" data-testid="registration-email" type="email" autocomplete="email" maxlength="254" placeholder="${escapeHtml(invitation.correo)}" required${invalid} /></label>
+          <label for="registration-password">Clave<input id="registration-password" data-testid="registration-password" type="password" autocomplete="new-password" minlength="6" maxlength="128" pattern="(?=.*[A-Za-z])(?=.*[0-9]).{6,128}" required${invalid} /><small>Mínimo 6 caracteres, con letras y números.</small></label>
+          <label for="registration-confirm">Confirma la clave<input id="registration-confirm" data-testid="registration-confirm" type="password" autocomplete="new-password" minlength="6" maxlength="128" required${invalid} /></label>
+          <button class="primary" type="submit" data-testid="registration-submit">Crear usuario y unirme</button>
+          <p class="error" id="registration-error" data-testid="registration-error" role="alert">${escapeHtml(message)}</p>
+        </form>`
+    : registering
+      ? `<form class="login-card registration-card" data-action="registration-user" data-testid="registration-form" aria-describedby="registration-error">
           <div class="auth-heading">
             <p class="registration-progress" data-testid="registration-progress">Paso 1 de 2 · Usuario</p>
             <h2 id="registration-title">Crea tu cuenta</h2>
@@ -1417,7 +1617,7 @@ function renderLogin(message = "") {
           <button class="primary" type="submit" data-testid="login-submit">Entrar</button>
           <p class="error" id="login-error" data-testid="login-error" role="alert">${escapeHtml(message)}</p>
         </form>`;
-  const authSwitch = state.registrationEnabled && !recovering
+  const authSwitch = (state.registrationEnabled || invitation) && !recovering
     ? `<div class="auth-switch" aria-label="Acceso a Pulse">
         <button type="button" data-action="show-login" aria-pressed="${registering ? "false" : "true"}">Entrar</button>
         <button type="button" data-action="show-registration" aria-pressed="${registering ? "true" : "false"}">Crear cuenta</button>
@@ -1433,6 +1633,7 @@ function renderLogin(message = "") {
         ${themeButton()}
       </header>
       <section class="gate-panel">
+        ${invitation ? `<div class="invitation-context"><strong>Invitación a ${escapeHtml(invitation.organizacion.nombre)}</strong><span>${escapeHtml(roleLabel(invitation.rol))} · ${invitation.empresas.length} ${invitation.empresas.length === 1 ? "empresa" : "empresas"}</span></div>` : ""}
         ${authSwitch}
         ${accessForm}
         ${!registering && !recovering ? '<button type="button" class="auth-help" data-action="show-recovery">¿Olvidaste tu clave?</button>' : ""}
@@ -1465,8 +1666,52 @@ async function submitLogin() {
       clave: document.querySelector("#login-password").value,
     }),
   });
-  state.error = "";
+  let invitationError = "";
+  if (state.invitationToken) {
+    try {
+      await api("/api/invitaciones/aceptar", {
+        method: "POST",
+        body: JSON.stringify({ invitacion: state.invitationToken }),
+      });
+      state.invitationToken = "";
+      state.invitationPreview = null;
+      window.history.replaceState({}, "", "/");
+    } catch (error) {
+      invitationError = error.message;
+    }
+  }
+  state.error = invitationError;
   state.loginNotice = "";
+  state.view = "bandeja";
+  renderInboxSkeleton();
+  await load();
+  state.selectedPerson = null;
+  state.filterChannel = "";
+  ensureSelection();
+  render();
+  fillAccountSelect();
+  startPolling();
+}
+
+async function submitInvitedRegistration() {
+  const password = document.querySelector("#registration-password").value;
+  const confirmation = document.querySelector("#registration-confirm").value;
+  if (password !== confirmation) throw new Error("Las claves no coinciden. Vuelve a escribirlas.");
+  await api("/api/registro-invitado", {
+    method: "POST",
+    body: JSON.stringify({
+      nombre: document.querySelector("#registration-name").value,
+      apellido: document.querySelector("#registration-last-name").value,
+      usuario: document.querySelector("#registration-user").value,
+      correo: document.querySelector("#registration-email").value,
+      clave: password,
+      invitacion: state.invitationToken,
+    }),
+  });
+  state.invitationToken = "";
+  state.invitationPreview = null;
+  window.history.replaceState({}, "", "/");
+  state.error = "";
   state.view = "bandeja";
   renderInboxSkeleton();
   await load();
@@ -1591,7 +1836,23 @@ async function boot() {
   const slow = setTimeout(() => renderInboxSkeleton(), 180);
   try {
     await loadPublicConfig();
+    await loadInvitation();
     await load();
+    if (state.invitationToken) {
+      try {
+        await api("/api/invitaciones/aceptar", {
+          method: "POST",
+          body: JSON.stringify({ invitacion: state.invitationToken }),
+        });
+        state.invitationToken = "";
+        state.invitationPreview = null;
+        window.history.replaceState({}, "", "/");
+        await load();
+        state.notice = "Te uniste a la organización.";
+      } catch (error) {
+        state.error = error.message;
+      }
+    }
     clearTimeout(slow);
     state.view = "bandeja";
     facebookReturn();

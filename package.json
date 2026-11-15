@@ -17,6 +17,7 @@
     "supabase:auth:repair-sequences": "node scripts/repair-local-auth-sequences.mjs",
     "verify:registration": "node scripts/verify-registration.mjs",
     "verify:workspaces": "node scripts/verify-workspaces.mjs",
+    "verify:team": "node scripts/verify-team.mjs",
     "verify:account-access": "node scripts/verify-account-access.mjs",
     "mobile:sync": "cap sync",
     "mobile:ios": "cap open ios",

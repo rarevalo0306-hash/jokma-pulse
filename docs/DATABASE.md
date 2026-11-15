@@ -4,7 +4,7 @@
 
 Desde el 14 de noviembre de 2026, Jokma Pulse trabaja únicamente con Supabase local. El proyecto administrado de Supabase Cloud fue eliminado por decisión del propietario después de confirmar que estaba vacío y que producción no lo utilizaba. No se deben ejecutar migraciones ni configurar variables contra un proyecto remoto mientras esta decisión siga vigente.
 
-Las nueve migraciones de `supabase/migrations/` están aplicadas al Postgres local:
+Las diez migraciones de `supabase/migrations/` están aplicadas al Postgres local:
 
 - `20261114143058_pulse_multitenant_core.sql`
 - `20261114162947_harden_private_credentials_and_fk_indexes.sql`
@@ -15,10 +15,11 @@ Las nueve migraciones de `supabase/migrations/` están aplicadas al Postgres loc
 - `20261115012103_index_conversation_notes_foreign_keys.sql`
 - `20261115022451_add_organizations_and_company_ownership.sql`
 - `20261115033626_add_profile_name_parts.sql`
+- `20261115185146_add_organization_invitations.sql`
 
 La base local contiene empresas de demostración y los espacios creados por usuarios reales. Supabase Auth, los perfiles y las membresías son la fuente actual de acceso; no se deben fijar cantidades en esta guía porque cambian con cada alta. El servidor iniciado con `npm run start:local` autentica, lee y escribe mediante Supabase local. El JSON permanece como reversión del modo `PULSE_STORE=json`, pero ya no participa en el login cuando el backend activo es Supabase.
 
-La verificación local confirmó RLS en las ocho tablas públicas y en `private.integration_credentials`, 14 políticas y cero permisos de cliente sobre el esquema privado. `private.integration_credentials` no tiene políticas para clientes deliberadamente; solo el rol de servicio tiene permisos. Las credenciales se cifran con AES-256-GCM antes de entrar en Postgres; nunca se copian a `companies.settings` ni vuelven al navegador. El esquema superó lint, asesores de seguridad y rendimiento, una prueba de aislamiento entre dos empresas y una importación idempotente.
+La verificación local confirmó RLS en las tablas públicas y en `private.integration_credentials`, además de cero permisos de cliente sobre el esquema privado y las tablas de invitaciones. `private.integration_credentials` no tiene políticas para clientes deliberadamente; solo el rol de servicio tiene permisos. Las credenciales se cifran con AES-256-GCM antes de entrar en Postgres; nunca se copian a `companies.settings` ni vuelven al navegador. El esquema superó pruebas pgTAP, asesores de seguridad y rendimiento, una prueba de aislamiento entre dos empresas y una importación idempotente.
 
 El importador `scripts/import-supabase.mjs` genera UUID v8 deterministas, separa las credenciales de los ajustes públicos y se ejecuta en modo ensayo por defecto. Las llaves locales se obtienen dinámicamente del CLI y no se guardan en archivos del proyecto.
 
@@ -27,6 +28,7 @@ El importador `scripts/import-supabase.mjs` genera UUID v8 deterministas, separa
 - `profiles`: perfil de la persona autenticada en Supabase Auth.
 - `organizations`: espacio administrativo que agrupa usuarios y empresas.
 - `organization_memberships`: relación muchos-a-muchos entre usuarios y organizaciones, con rol `owner`, `admin` o `agent`.
+- `organization_invitations` y `organization_invitation_companies`: invitaciones de siete días, rol y acceso inicial por empresa. Solo se guarda el hash del token; los clientes no tienen acceso directo a estas tablas.
 - `companies`: ficha y parámetros no secretos de cada empresa; cada empresa pertenece a una organización.
 - `company_memberships`: acceso operativo del usuario a cada empresa. Un usuario nunca queda limitado estructuralmente a una sola organización o empresa.
 - `channel_accounts`: cuentas conectadas por canal.
@@ -53,7 +55,9 @@ El lanzador habilita `PULSE_ALLOW_SIGNUP=true`. En desarrollo local el alta func
 
 El formulario exige nombre, apellido, organización, empresa, industria, usuario, correo y una clave de al menos seis caracteres que incluya letras y números. Nombre y apellido se guardan por separado en `profiles` y también forman el nombre visible. La clave viaja directamente al endpoint local y no se registra ni se devuelve al navegador. `npm run verify:registration` prueba el alta, el inicio de sesión y el aislamiento de la empresa; `npm run verify:account-access` también prueba el cambio de clave; ambos usan datos sintéticos y los eliminan al terminar.
 
-La vista **Espacios** permite crear organizaciones independientes y agregar empresas dentro de una organización cuando la membresía es `owner` o `admin`. Los selectores de organización y empresa son distintos y el servidor siempre vuelve a verificar la membresía antes de cambiar la sesión.
+La vista **Espacios** permite crear organizaciones independientes y agregar empresas dentro de una organización cuando la membresía es `owner` o `admin`. También permite invitar por correo mediante un enlace privado, asignar el rol y las empresas disponibles, suspender o reactivar miembros y transferir la propiedad. Los administradores gestionan agentes; solo el propietario puede gestionar administradores o transferir la organización. El enlace completo se devuelve una sola vez y la base conserva únicamente su hash. Un usuario existente entra y acepta la invitación; uno nuevo crea primero su usuario personal y se incorpora a la organización sin crear otra empresa.
+
+Los selectores de organización y empresa son distintos y el servidor siempre vuelve a verificar la membresía antes de cambiar la sesión. `npm run verify:team` prueba con datos sintéticos la invitación, el alta, el aislamiento por empresa, la suspensión y la transferencia de propiedad, y elimina el usuario de prueba al terminar. `supabase test db` verifica que las tablas de invitaciones no sean accesibles directamente por `anon` ni `authenticated`.
 
 Después de restaurar una copia de la base, ejecuta `npm run supabase:auth:repair-sequences` antes de aceptar usuarios nuevos. Esto sincroniza la secuencia interna de `auth.refresh_tokens` con los datos restaurados y evita colisiones al crear la primera sesión.
 

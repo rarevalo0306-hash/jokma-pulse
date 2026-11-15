@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import postgres from "postgres";
 import puppeteer from "puppeteer-core";
 
 const base = process.env.BASE_URL || "http://127.0.0.1:4317";
@@ -14,6 +16,7 @@ const browser = await puppeteer.launch({
 });
 
 const page = await browser.newPage();
+let verificationInvitationId = "";
 page.setDefaultTimeout(20000);
 page.on("dialog", (dialog) => dialog.accept());
 
@@ -40,6 +43,41 @@ try {
   assert.ok(await page.$('[data-testid="person-mariana-lópez"]'));
   assert.equal(await page.$('[data-testid="person-jorge-ramírez"]'), null);
   await page.screenshot({ path: `${shots}desktop.png`, fullPage: true });
+  await page.$eval('[data-testid="nav-spaces"]', (node) => node.click());
+  await page.waitForSelector('[data-testid="invite-member-form"]');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await page.screenshot({ path: `${shots}desktop-spaces.png`, fullPage: true });
+  await page.$eval('[data-testid="invite-member-form"]', (form, email) => {
+    form.querySelector('input[name="correo"]').value = email;
+    form.querySelector('input[name="empresaIds"]').checked = true;
+  }, `interfaz-${Date.now()}@pulse.local.invalid`);
+  const [invitationResponse] = await Promise.all([
+    page.waitForResponse((response) => response.url().includes("/invitaciones") && response.request().method() === "POST"),
+    page.$eval('[data-testid="invite-member-form"]', (form) => form.requestSubmit()),
+  ]);
+  assert.equal(invitationResponse.status(), 201);
+  const invitationPayload = await invitationResponse.json();
+  verificationInvitationId = invitationPayload.id;
+  await page.waitForSelector(".invitation-result");
+  await page.screenshot({ path: `${shots}desktop-invitation-ready.png`, fullPage: true });
+  const guestContext = await browser.createBrowserContext();
+  const invitePage = await guestContext.newPage();
+  await invitePage.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+  await invitePage.goto(invitationPayload.enlace, { waitUntil: "networkidle0" });
+  await invitePage.waitForSelector(".invitation-context");
+  await invitePage.click('[data-action="show-registration"]');
+  await invitePage.waitForSelector('[data-testid="registration-form"]');
+  assert.ok((await invitePage.$eval(".invitation-context", (node) => node.textContent)).includes("Cafetería Lumen"));
+  assert.equal(await invitePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await invitePage.screenshot({ path: `${shots}mobile-invitation.png`, fullPage: true });
+  await guestContext.close();
+  const [revocationResponse] = await Promise.all([
+    page.waitForResponse((response) => response.url().includes("/invitaciones/") && response.request().method() === "DELETE"),
+    page.$eval('[data-action="revoke-invitation"]', (node) => node.click()),
+  ]);
+  assert.equal(revocationResponse.status(), 200);
+  await page.$eval('[data-testid="nav-inbox"]', (node) => node.click());
+  await page.waitForSelector('[data-testid="person-mariana-lópez"]');
 
   await page.select('[data-testid="organization-switcher"]', arceOrganizationId);
   await page.waitForFunction(
@@ -112,10 +150,20 @@ try {
   await page.waitForFunction(() => document.querySelector(".inbox")?.dataset.mobilePane === "list");
   await page.$eval('[data-testid="nav-spaces"]', (node) => node.click());
   await page.waitForSelector('[data-testid="change-password-form"]');
+  await page.waitForSelector('[data-testid="invite-member-form"]');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await page.screenshot({ path: `${shots}mobile-spaces.png`, fullPage: true });
 
-  console.log(JSON.stringify({ ok: true, organizationSwitch: true, approval: true, mobileListDetail: true, mobileSpaces: true }));
+  console.log(JSON.stringify({ ok: true, organizationSwitch: true, approval: true, desktopTeam: true, invitationUi: true, invitedRegistrationUi: true, mobileListDetail: true, mobileSpaces: true }));
 } finally {
+  if (verificationInvitationId) {
+    const status = spawnSync("supabase", ["status", "-o", "env"], { encoding: "utf8" });
+    const line = status.stdout.split(/\r?\n/).find((item) => item.startsWith("DB_URL="));
+    if (status.status === 0 && line) {
+      const sql = postgres(JSON.parse(line.slice("DB_URL=".length)), { max: 1, prepare: false });
+      await sql`delete from public.organization_invitations where id = ${verificationInvitationId}`;
+      await sql.end({ timeout: 2 });
+    }
+  }
   await browser.close();
 }

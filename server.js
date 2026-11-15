@@ -9,6 +9,7 @@ import { createSupabaseStore } from "./src/supabase-store.js";
 import { createCredentialStore } from "./src/credentials.js";
 import { createRegistrationService, registrationEnabled } from "./src/registration.js";
 import { createAccountSecurity } from "./src/account-security.js";
+import { createTeamService } from "./src/team.js";
 import { sendEmailReply, syncEmailInbox } from "./src/email.js";
 import { listGoogleReviews, replyGoogleReview } from "./src/google-reviews.js";
 import { listXMessages, sendXMessage } from "./src/x.js";
@@ -50,6 +51,7 @@ const registration = allowRegistration ? createRegistrationService({ admin: supa
 const accountSecurity = usingSupabase
   ? createAccountSecurity({ admin: supabaseAdmin, authenticate: (username, password) => store.authenticate(username, password) })
   : null;
+const team = usingSupabase ? createTeamService({ admin: supabaseAdmin }) : null;
 const app = express();
 const FACEBOOK_VERIFY_TOKEN = process.env.PULSE_FACEBOOK_VERIFY_TOKEN || "jokma-pulse-facebook";
 
@@ -176,6 +178,26 @@ app.post("/api/registro", limitRegistration, async (req, res) => {
   }
 });
 
+app.get("/api/invitaciones/vista", async (req, res) => {
+  try {
+    if (!team) throw Object.assign(new Error("Las invitaciones necesitan Supabase local."), { status: 503 });
+    res.json(await team.preview(req.query?.token));
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.post("/api/registro-invitado", limitRegistration, async (req, res) => {
+  try {
+    if (!team) throw Object.assign(new Error("Las invitaciones necesitan Supabase local."), { status: 503 });
+    const created = await team.registerInvited(req.body || {});
+    res.setHeader("Set-Cookie", sessionCookie(created.user.id, created.company.id));
+    res.status(201).json({ usuario: created.user, organizacion: created.organization, empresa: created.company });
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
 app.post("/api/sesion", limitLogin, async (req, res) => {
   try {
     const access = await store.authenticate(req.body?.usuario, req.body?.clave);
@@ -242,6 +264,68 @@ app.post("/api/organizaciones/:id/empresas", requireSession, async (req, res) =>
     });
     res.setHeader("Set-Cookie", sessionCookie(req.usuario.id, company.id));
     res.status(201).json(company);
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.get("/api/organizaciones/:id/equipo", requireSession, async (req, res) => {
+  try {
+    if (!team) throw Object.assign(new Error("La administración de equipo necesita Supabase local."), { status: 503 });
+    res.json(await team.list(req.params.id, req.usuario.id));
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.post("/api/organizaciones/:id/invitaciones", requireSession, async (req, res) => {
+  try {
+    if (!team) throw Object.assign(new Error("La administración de equipo necesita Supabase local."), { status: 503 });
+    const invitation = await team.createInvitation(req.params.id, req.usuario.id, req.body || {});
+    const origin = requestOrigin(req.headers.host, {
+      vercel: Boolean(process.env.VERCEL),
+      proto: req.headers["x-forwarded-proto"] || req.protocol,
+    });
+    const invitationUrl = `${origin}/?invitacion=${encodeURIComponent(invitation.token)}`;
+    res.status(201).json({ id: invitation.id, venceEn: invitation.venceEn, enlace: invitationUrl });
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.delete("/api/organizaciones/:id/invitaciones/:invitationId", requireSession, async (req, res) => {
+  try {
+    if (!team) throw Object.assign(new Error("La administración de equipo necesita Supabase local."), { status: 503 });
+    res.json(await team.revokeInvitation(req.params.id, req.params.invitationId, req.usuario.id));
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.put("/api/organizaciones/:id/miembros/:userId", requireSession, async (req, res) => {
+  try {
+    if (!team) throw Object.assign(new Error("La administración de equipo necesita Supabase local."), { status: 503 });
+    res.json(await team.updateMember(req.params.id, req.usuario.id, req.params.userId, req.body || {}));
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.post("/api/organizaciones/:id/transferir", requireSession, async (req, res) => {
+  try {
+    if (!team) throw Object.assign(new Error("La administración de equipo necesita Supabase local."), { status: 503 });
+    res.json(await team.transfer(req.params.id, req.usuario.id, req.body?.usuarioId));
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.post("/api/invitaciones/aceptar", requireSession, async (req, res) => {
+  try {
+    if (!team) throw Object.assign(new Error("Las invitaciones necesitan Supabase local."), { status: 503 });
+    const accepted = await team.accept(req.usuario.id, req.body?.invitacion);
+    res.setHeader("Set-Cookie", sessionCookie(req.usuario.id, accepted.companyId));
+    res.json({ ok: true, organizacionId: accepted.organizationId, empresaId: accepted.companyId });
   } catch (error) {
     fail(res, error);
   }

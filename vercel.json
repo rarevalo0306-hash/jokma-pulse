@@ -3,6 +3,11 @@
   "framework": "express",
   "redirects": [
     {
+      "source": "/",
+      "destination": "https://pulse.jokma.app/",
+      "permanent": false
+    },
+    {
       "source": "/:path*",
       "destination": "https://pulse.jokma.app/:path*",
       "permanent": false

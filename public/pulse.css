@@ -174,14 +174,18 @@ button:active { transform: translateY(1px); }
 .account-head, .profile-top { display: flex; align-items: start; justify-content: space-between; gap: var(--s3); }
 .account-title { margin-top: var(--s2); }
 .account-card .grid { margin-block: var(--s4); }
-.settings-screen { max-width: 1120px; }
+.settings-screen { width: 100%; max-width: 1120px; min-width: 0; }
+.settings-screen > *, .settings-network { min-width: 0; max-width: 100%; }
 .settings-network { margin-top: var(--s4); background: var(--surface-muted); }
-.settings-scroll { overflow-x: auto; }
+.settings-scroll { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; }
 .settings-table { width: 100%; min-width: 680px; border-collapse: collapse; }
 .settings-table th, .settings-table td { padding: var(--s3); border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .settings-table th { font-size: 12px; }
 .settings-table code, code { overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
 .settings-connect { display: grid; justify-items: start; gap: var(--s3); }
+.connection-health { margin-block: var(--s3); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+.connection-health span { color: var(--muted); font-size: 13px; font-weight: 700; }
+.connection-health[data-ready="true"] span { color: var(--accent-strong); }
 .spaces-layout { max-width: 1120px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s5); }
 .spaces-layout .panel { align-content: start; }
 .space-heading { display: flex; justify-content: space-between; gap: var(--s3); align-items: start; }

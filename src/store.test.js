@@ -95,3 +95,21 @@ test("el seguimiento conserva estado, asignación y notas internas", () => {
   const noted = store.addConversationNote(message.id, "Llamar mañana.", "usr-lumen");
   assert.equal(noted.notas.at(-1).texto, "Llamar mañana.");
 });
+
+test("X importa mensajes en la cuenta x_dm y conserva el destinatario", () => {
+  const store = tempStore();
+  const imported = store.recordXMessage("co-lumen", {
+    externalId: "dm-real-1",
+    participantId: "123456789",
+    displayName: "Cliente de X",
+    text: "Necesito ayuda por mensaje directo.",
+  });
+  assert.equal(imported.canal, "x_dm");
+  assert.equal(imported.direccionCliente, "123456789");
+  assert.equal(store.recordXMessage("co-lumen", {
+    externalId: "dm-real-1",
+    participantId: "123456789",
+    displayName: "Cliente de X",
+    text: "Duplicado",
+  }).id, imported.id);
+});

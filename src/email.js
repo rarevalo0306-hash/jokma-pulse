@@ -63,6 +63,23 @@ export async function sendEmailReply({ company, message, transportFactory = node
   return { providerMessageId: String(result?.messageId || "") };
 }
 
+export async function verifyEmailConnection({
+  company,
+  transportFactory = nodemailer.createTransport,
+  clientFactory = (options) => new ImapFlow(options),
+}) {
+  const configuration = emailConfiguration(company);
+  const transport = transportFactory(configuration.smtp);
+  await transport.verify();
+  const client = clientFactory(configuration.imap);
+  try {
+    await client.connect();
+  } finally {
+    await client.logout().catch(() => {});
+  }
+  return { address: configuration.accountAddress, smtp: true, imap: true };
+}
+
 export async function syncEmailInbox({
   company,
   clientFactory = (options) => new ImapFlow(options),

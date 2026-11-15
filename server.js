@@ -11,10 +11,10 @@ import { createRegistrationService, registrationEnabled } from "./src/registrati
 import { createAccountSecurity } from "./src/account-security.js";
 import { createTeamService } from "./src/team.js";
 import { createRecoveryMailer } from "./src/recovery-email.js";
-import { sendEmailReply, syncEmailInbox } from "./src/email.js";
+import { sendEmailReply, syncEmailInbox, verifyEmailConnection } from "./src/email.js";
 import { listGoogleReviews, replyGoogleReview } from "./src/google-reviews.js";
 import { listXMessages, sendXMessage } from "./src/x.js";
-import { readFacebookEvents, sendMetaMessage } from "./src/meta-messaging.js";
+import { readFacebookEvents, sendMetaMessage, verifyMetaConnection } from "./src/meta-messaging.js";
 import { beginLogin, callbackMotivo, completeLogin, readState, requestOrigin, settingsWithPage } from "./src/facebook.js";
 import {
   PULSE_APP_ID,
@@ -520,6 +520,31 @@ app.post("/api/x/sincronizar", requireSession, async (req, res) => {
   }
 });
 
+app.post("/api/conexiones/:provider/probar", requireSession, async (req, res) => {
+  try {
+    const provider = String(req.params.provider || "").toLowerCase();
+    const company = await store.getCompanyWithSecrets(req.empresa.id);
+    let detail;
+    if (provider === "email") {
+      detail = await verifyEmailConnection({ company });
+    } else if (provider === "google") {
+      const reviews = await listGoogleReviews(company);
+      detail = { readable: true, items: reviews.length };
+    } else if (provider === "x") {
+      const messages = await listXMessages(company);
+      detail = { readable: true, items: messages.length };
+    } else if (provider === "facebook" || provider === "instagram") {
+      detail = await verifyMetaConnection(company, provider);
+    } else {
+      throw Object.assign(new Error("La conexión solicitada no existe."), { status: 404 });
+    }
+    res.json({ ok: true, provider, detail });
+  } catch (error) {
+    if (!error.status) error.status = 502;
+    fail(res, error);
+  }
+});
+
 function facebookRedirect(res, motivo) {
   const target = motivo ? `/?facebook=error&motivo=${encodeURIComponent(motivo)}` : "/?facebook=ok";
   res.redirect(302, target);
@@ -716,7 +741,7 @@ app.post("/api/mensajes/:id/enviar", requireSession, async (req, res) => {
   try {
     message = await messageFor(req, req.params.id);
     const account = await accountFor(req, message.cuentaId);
-    if (!["email", "google_reviews", "x", "facebook_messenger", "instagram_dm"].includes(account.canal)) {
+    if (!["email", "google_reviews", "x_dm", "facebook_messenger", "instagram_dm"].includes(account.canal)) {
       throw Object.assign(new Error("El envío directo de este canal todavía no está disponible."), { status: 409 });
     }
     if (!["aprobado", "error"].includes(message.estadoRespuesta)) {
@@ -727,12 +752,12 @@ app.post("/api/mensajes/:id/enviar", requireSession, async (req, res) => {
     let delivery;
     if (account.canal === "email") delivery = await sendEmailReply({ company, message });
     else if (account.canal === "google_reviews") delivery = await replyGoogleReview(company, message);
-    else if (account.canal === "x") delivery = await sendXMessage(company, message);
+    else if (account.canal === "x_dm") delivery = await sendXMessage(company, message);
     else delivery = await sendMetaMessage(company, message);
     res.json(await store.markDelivery(message.id, "sent", delivery));
   } catch (error) {
     if (message) {
-      await store.markDelivery(message.id, "error", { error: "El proveedor de correo rechazó el envío." }).catch(() => {});
+      await store.markDelivery(message.id, "error", { error: "El proveedor rechazó el envío." }).catch(() => {});
     }
     if (!error.status) error.status = 502;
     fail(res, error);

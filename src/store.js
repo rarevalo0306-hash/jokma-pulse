@@ -459,7 +459,7 @@ export function createStore(dataPath) {
 
   function recordXMessage(companyId, { externalId, participantId, displayName, text }) {
     const state = load();
-    const account = state.accounts.find((item) => item.empresaId === companyId && item.canal === "x");
+    const account = state.accounts.find((item) => item.empresaId === companyId && item.canal === "x_dm");
     if (!account) return null;
     const existing = state.messages.find((item) => externalId && item.externalId === externalId);
     if (existing) return existing;

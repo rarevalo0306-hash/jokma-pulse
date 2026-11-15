@@ -736,11 +736,11 @@ function messageDetail() {
   const approved = message.estadoRespuesta === "aprobado";
   const locked = ["aprobado", "enviando", "enviado", "entregado"].includes(message.estadoRespuesta);
   const account = state.accounts.find((item) => item.id === message.cuentaId);
-  const directChannels = new Set(["email", "google_reviews", "x", "facebook_messenger", "instagram_dm"]);
+  const directChannels = new Set(["email", "google_reviews", "x_dm", "facebook_messenger", "instagram_dm"]);
   const canSend = directChannels.has(account?.canal) && ["aprobado", "error"].includes(message.estadoRespuesta);
   const sendLabel = account?.canal === "google_reviews"
     ? "Publicar respuesta"
-    : account?.canal === "x"
+    : account?.canal === "x_dm"
       ? "Enviar en X"
       : account?.canal === "facebook_messenger"
         ? "Enviar en Messenger"
@@ -748,7 +748,7 @@ function messageDetail() {
           ? "Enviar en Instagram"
           : "Enviar correo";
   const deliveryNote = message.estadoRespuesta === "enviado" || message.estadoRespuesta === "entregado"
-    ? "Respuesta enviada directamente por correo."
+    ? "Respuesta enviada directamente por el canal conectado."
     : message.estadoRespuesta === "error"
       ? "El envío falló. Revisa la conexión y vuelve a intentarlo."
       : approved
@@ -793,6 +793,50 @@ function settingsTable(rows, draft, company) {
   </div>`;
 }
 
+const CONNECTION_CHECKS = {
+  Google: {
+    provider: "google",
+    publicKeys: ["google_client_id", "google_account_id", "google_location_id"],
+    secretKeys: ["google_client_secret", "google_refresh_token"],
+  },
+  Instagram: {
+    provider: "instagram",
+    publicKeys: ["instagram_user_id"],
+    secretKeys: ["instagram_access_token"],
+  },
+  Facebook: {
+    provider: "facebook",
+    publicKeys: ["facebook_page_id"],
+    secretKeys: ["facebook_page_token"],
+  },
+  X: {
+    provider: "x",
+    publicKeys: ["x_user_id"],
+    secretKeys: ["x_api_key", "x_api_secret", "x_access_token", "x_access_token_secret"],
+  },
+  Correo: {
+    provider: "email",
+    publicKeys: ["smtp_host", "smtp_user", "imap_host"],
+    secretKeys: ["smtp_password"],
+  },
+};
+
+function connectionCheck(network, company, draft) {
+  const definition = CONNECTION_CHECKS[network];
+  if (!definition) return null;
+  const publicReady = definition.publicKeys.every((key) => String(draft?.[key] || company?.ajustes?.[key] || "").trim());
+  const secretsReady = definition.secretKeys.every((key) => Boolean(company?.credenciales?.[key]));
+  const ready = publicReady && secretsReady;
+  return {
+    ...definition,
+    ready,
+    markup: `<div class="connection-health" data-ready="${ready}" data-testid="connection-${escapeHtml(definition.provider)}-status">
+      <span>${ready ? "Configuración guardada" : "Configuración incompleta"}</span>
+      <button type="button" class="ghost" data-action="test-connection" data-provider="${escapeHtml(definition.provider)}" data-testid="test-${escapeHtml(definition.provider)}" ${ready ? "" : "disabled"}>Probar conexión</button>
+    </div>`,
+  };
+}
+
 function settingsView() {
   const company = companyById(state.selectedCompanyId);
   const draft = state.settingsDraft || company?.ajustes || {};
@@ -810,6 +854,7 @@ function settingsView() {
   const connections = (state.conexiones || [])
     .filter((group) => !group.oculto)
     .map((group) => {
+      const check = connectionCheck(group.red, company, draft);
       const facebook =
         group.red === "Facebook"
           ? `<div class="settings-connect">
@@ -839,6 +884,7 @@ function settingsView() {
           : "";
       return `<section class="settings-network" data-network="${escapeHtml(group.red)}">
         <h3>${escapeHtml(group.red)}</h3>
+        ${check?.markup || ""}
         ${settingsTable(group.filas || [], draft, company)}
         ${facebook}
         ${instagram}
@@ -1256,9 +1302,15 @@ app.addEventListener("click", async (event) => {
       setControlBusy("[data-testid='send-message']", true, "Enviando");
       await api(`/api/mensajes/${state.selectedMessageId}/enviar`, { method: "POST", body: "{}" });
       await load();
-      state.notice = "Respuesta enviada por correo.";
+      state.notice = "Respuesta enviada directamente por el canal conectado.";
       render();
       fillAccountSelect();
+    } else if (action === "test-connection") {
+      const provider = button.dataset.provider;
+      setControlBusy(`[data-testid='test-${provider}']`, true, "Probando");
+      await api(`/api/conexiones/${encodeURIComponent(provider)}/probar`, { method: "POST", body: "{}" });
+      state.notice = "Conexión verificada con el proveedor.";
+      render();
     } else if (action === "sync-email") {
       setControlBusy("[data-testid='sync-email']", true, "Sincronizando");
       const result = await api("/api/email/sincronizar", { method: "POST", body: "{}" });

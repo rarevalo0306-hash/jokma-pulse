@@ -10,6 +10,7 @@ Pulse no usa n8n. Cada empresa conserva sus identificadores públicos en `compan
 - Instagram webhook: `https://pulse.jokma.app/api/instagram/webhook` con token `jokma-pulse-instagram`.
 - Los dos webhooks validan `X-Hub-Signature-256` antes de aceptar eventos.
 - Messenger e Instagram Direct conservan el identificador del remitente y permiten enviar un borrador aprobado mediante la API oficial.
+- Ajustes muestra si los identificadores y secretos cifrados están completos y permite probar cada conexión contra Meta sin devolver el token al navegador.
 
 El usuario todavía debe completar el whitelist de OAuth de Instagram en Meta. No se solicita App Review, acceso avanzado ni verificación desde Pulse.
 
@@ -17,15 +18,21 @@ El usuario todavía debe completar el whitelist de OAuth de Instagram en Meta. N
 
 La bandeja lee mensajes no vistos por IMAP y envía respuestas aprobadas por SMTP. Se configuran host, puerto, TLS, usuario, contraseña y remitente desde Ajustes. La contraseña nunca vuelve al navegador.
 
+**Probar conexión** abre y cierra sesiones SMTP e IMAP sin leer, marcar ni enviar mensajes.
+
 El correo de recuperación de acceso es un servicio distinto del correo de cada empresa. Pulse genera el token mediante Supabase Auth, pero envía el enlace público con un remitente SMTP global; no reutiliza automáticamente la cuenta de una empresa. La configuración real se guarda como una sola entrada protegida del llavero de macOS mediante `npm run configure:recovery-email`. En desarrollo, Mailpit captura estos correos sin enviarlos a Internet.
 
 ## Google Reviews
 
 Pulse renueva el acceso con el `refresh_token`, importa las reseñas de la cuenta y ubicación configuradas y publica respuestas aprobadas con la API de Google Business Profile. La cuenta real necesita acceso previo a esa API por parte de Google.
 
+La prueba de conexión renueva el token y realiza una lectura de reseñas sin importar datos a Pulse.
+
 ## X
 
 Pulse firma solicitudes con OAuth 1.0a, importa eventos de mensajes directos y envía una respuesta aprobada al participante conservado. La cuenta real necesita un proyecto de X con acceso a lectura y escritura de DM.
+
+El canal persistido y usado para recepción y envío directo es `x_dm`. La prueba de conexión lee los eventos disponibles sin importarlos.
 
 ## Verificación pendiente con proveedores
 

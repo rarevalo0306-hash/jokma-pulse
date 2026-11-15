@@ -55,3 +55,23 @@ export async function sendMetaMessage(company, message, fetchImpl = fetch) {
   if (!response.ok || payload?.error) throw fail(502, "Meta rechazó el envío.");
   return { providerMessageId: String(payload.message_id || "") };
 }
+
+export async function verifyMetaConnection(company, provider, fetchImpl = fetch) {
+  const settings = normalizeSettings(company?.ajustes, company);
+  const instagram = provider === "instagram";
+  if (!instagram && provider !== "facebook") throw fail(400, "La conexión de Meta no es válida.");
+  const id = String(instagram ? settings.instagram_user_id : settings.facebook_page_id).trim();
+  const token = String(instagram ? settings.instagram_access_token : settings.facebook_page_token).trim();
+  if (!id || !token) throw fail(409, `Completa la conexión de ${instagram ? "Instagram" : "Facebook"}.`);
+  const url = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(id)}`);
+  url.searchParams.set("fields", instagram ? "id,username" : "id,name");
+  const response = await fetchImpl(url.toString(), {
+    headers: { authorization: `Bearer ${token}` },
+    redirect: "manual",
+    signal: AbortSignal.timeout(8000),
+  });
+  let payload;
+  try { payload = await response.json(); } catch { throw fail(502, "Meta devolvió una respuesta inválida."); }
+  if (!response.ok || payload?.error || String(payload?.id || "") !== id) throw fail(502, "Meta rechazó la conexión.");
+  return { id, label: String(payload.username || payload.name || id).slice(0, 160) };
+}

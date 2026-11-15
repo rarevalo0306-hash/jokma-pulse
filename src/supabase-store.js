@@ -651,7 +651,7 @@ export function createSupabaseStore(client, authStore, { createAuthClient, crede
 
   async function recordXMessage(companyId, { externalId, participantId, displayName, text }) {
     const state = await load();
-    const account = state.accounts.find((item) => item.empresaId === companyId && item.canal === "x");
+    const account = state.accounts.find((item) => item.empresaId === companyId && item.canal === "x_dm");
     if (!account) return null;
     return insertMessage(
       account,

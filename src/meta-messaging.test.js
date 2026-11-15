@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFacebookEvents, sendMetaMessage } from "./meta-messaging.js";
+import { readFacebookEvents, sendMetaMessage, verifyMetaConnection } from "./meta-messaging.js";
 
 test("el webhook de Facebook normaliza mensajes y descarta ecos", () => {
   const events = readFacebookEvents({
@@ -30,4 +30,24 @@ test("Meta envía una respuesta sin poner el token en el cuerpo", async () => {
   assert.equal(call.options.body.includes("token-prueba"), false);
   assert.deepEqual(JSON.parse(call.options.body), { recipient: { id: "42" }, message: { text: "Con gusto" } });
   assert.deepEqual(result, { providerMessageId: "mid-3" });
+});
+
+test("Meta verifica Facebook e Instagram sin poner tokens en la URL", async () => {
+  const calls = [];
+  const company = { ajustes: {
+    facebook_page_id: "page-1",
+    facebook_page_token: "token-facebook",
+    instagram_user_id: "ig-1",
+    instagram_access_token: "token-instagram",
+  } };
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    const instagram = url.includes("/ig-1?");
+    return { ok: true, async json() { return instagram ? { id: "ig-1", username: "pulse" } : { id: "page-1", name: "Pulse" }; } };
+  };
+  assert.deepEqual(await verifyMetaConnection(company, "facebook", fetchImpl), { id: "page-1", label: "Pulse" });
+  assert.deepEqual(await verifyMetaConnection(company, "instagram", fetchImpl), { id: "ig-1", label: "pulse" });
+  assert.equal(calls.some((call) => call.url.includes("token-")), false);
+  assert.equal(calls[0].options.headers.authorization, "Bearer token-facebook");
+  assert.equal(calls[1].options.headers.authorization, "Bearer token-instagram");
 });

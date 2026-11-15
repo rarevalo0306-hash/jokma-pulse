@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { emailConfiguration, sendEmailReply, syncEmailInbox } from "./email.js";
+import { emailConfiguration, sendEmailReply, syncEmailInbox, verifyEmailConnection } from "./email.js";
 
 const company = {
   nombre: "Cafetería Lumen",
@@ -74,4 +74,22 @@ test("la sincronización IMAP normaliza mensajes nuevos y los marca como leídos
   assert.equal(events[0].fromAddress, "ada@example.net");
   assert.equal(events[0].text, "Necesito información");
   assert.deepEqual(marked, [7]);
+});
+
+test("probar correo valida SMTP e IMAP sin leer ni enviar mensajes", async () => {
+  const events = [];
+  const result = await verifyEmailConnection({
+    company,
+    transportFactory() {
+      return { async verify() { events.push("smtp"); } };
+    },
+    clientFactory() {
+      return {
+        async connect() { events.push("imap"); },
+        async logout() { events.push("logout"); },
+      };
+    },
+  });
+  assert.deepEqual(events, ["smtp", "imap", "logout"]);
+  assert.deepEqual(result, { address: "hola@example.com", smtp: true, imap: true });
 });

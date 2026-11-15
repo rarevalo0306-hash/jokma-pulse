@@ -14,9 +14,20 @@
     "supabase:import:dry-run": "node scripts/import-supabase.mjs",
     "supabase:backup:local": "node scripts/backup-local.mjs",
     "supabase:backup:verify": "node scripts/verify-backup-local.mjs",
-    "verify:registration": "node scripts/verify-registration.mjs"
+    "supabase:auth:repair-sequences": "node scripts/repair-local-auth-sequences.mjs",
+    "verify:registration": "node scripts/verify-registration.mjs",
+    "verify:workspaces": "node scripts/verify-workspaces.mjs",
+    "verify:account-access": "node scripts/verify-account-access.mjs",
+    "mobile:sync": "cap sync",
+    "mobile:ios": "cap open ios",
+    "mobile:android": "cap open android",
+    "mobile:build:ios": "xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build",
+    "mobile:build:android": "JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ANDROID_HOME=/opt/homebrew/share/android-commandlinetools ./android/gradlew -p android assembleDebug"
   },
   "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/core": "8.6.2",
+    "@capacitor/ios": "8.6.2",
     "@supabase/supabase-js": "2.119.0",
     "express": "^4.21.2",
     "imapflow": "2.11.0",
@@ -25,6 +36,7 @@
     "postgres": "4.1.1"
   },
   "devDependencies": {
-    "puppeteer-core": "^24.15.0"
+    "@capacitor/cli": "8.6.2",
+    "puppeteer-core": "25.17.0"
   }
 }

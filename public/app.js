@@ -3,11 +3,13 @@ const app = document.querySelector("#app");
 const state = {
   view: "bandeja",
   user: null,
+  organizations: [],
   companies: [],
   accounts: [],
   messages: [],
   canales: [],
   selectedCompanyId: null,
+  selectedOrganizationId: null,
   selectedPerson: null,
   selectedMessageId: null,
   draft: null,
@@ -20,6 +22,9 @@ const state = {
   notice: "",
   authMode: "login",
   registrationEnabled: false,
+  inviteRequired: false,
+  recoveryEmailEnabled: false,
+  loginNotice: "",
 };
 
 let knownMessageIds = null;
@@ -220,6 +225,10 @@ function companyById(id) {
   return state.companies.find((item) => item.id === id);
 }
 
+function organizationById(id) {
+  return state.organizations.find((item) => item.id === id);
+}
+
 function accountById(id) {
   return state.accounts.find((item) => item.id === id);
 }
@@ -247,6 +256,7 @@ async function api(url, options) {
 async function load() {
   const payload = await api("/api/estado");
   state.user = payload.user || null;
+  state.organizations = payload.organizations || [];
   state.companies = payload.companies;
   state.accounts = payload.accounts;
   state.messages = payload.messages;
@@ -255,6 +265,7 @@ async function load() {
   state.parametros = payload.parametros || [];
   state.conexiones = payload.conexiones || [];
   state.selectedCompanyId = payload.activeCompanyId || state.companies[0]?.id || null;
+  state.selectedOrganizationId = payload.activeOrganizationId || companyById(state.selectedCompanyId)?.organizacionId || state.organizations[0]?.id || null;
   if (state.selectedCompanyId && !companyById(state.selectedCompanyId)) {
     state.selectedCompanyId = null;
     state.view = "bandeja";
@@ -269,8 +280,12 @@ async function loadPublicConfig() {
   try {
     const payload = await api("/api/configuracion-publica");
     state.registrationEnabled = payload.registroHabilitado === true;
+    state.inviteRequired = payload.codigoInvitacionRequerido === true;
+    state.recoveryEmailEnabled = payload.recuperacionCorreoHabilitada === true;
   } catch {
     state.registrationEnabled = false;
+    state.inviteRequired = false;
+    state.recoveryEmailEnabled = false;
   }
 }
 
@@ -340,6 +355,8 @@ function render() {
       ? companyView()
       : state.view === "ajustes"
         ? settingsView()
+        : state.view === "espacios"
+          ? spacesView()
         : inboxView();
   app.innerHTML = `<div class="shell"><a class="skip" href="#contenido">Saltar al contenido</a><p class="sr-only" aria-live="polite" data-testid="arrival-note">${escapeHtml(arrivalNote)}</p>${appBar()}<main class="main" id="contenido" tabindex="-1">${workspaceBar()}${body}</main></div>`;
 }
@@ -350,6 +367,7 @@ function appBar() {
     <nav class="nav-stack">
       <button type="button" class="nav-button" data-action="nav-inbox" data-testid="nav-inbox" ${state.view === "bandeja" ? 'aria-current="page"' : ""}>Mensajes</button>
       <button type="button" class="nav-button" data-action="open-company" data-id="${escapeHtml(state.selectedCompanyId || "")}" data-testid="nav-company" ${state.view === "empresa" ? 'aria-current="page"' : ""}>Empresa</button>
+      <button type="button" class="nav-button" data-action="open-spaces" data-testid="nav-spaces" ${state.view === "espacios" ? 'aria-current="page"' : ""}>Espacios</button>
       <button type="button" class="nav-button" data-action="open-settings" data-testid="nav-settings" ${state.view === "ajustes" ? 'aria-current="page"' : ""}>Ajustes</button>
     </nav>
     <div class="nav-footer">${themeButton()}<button type="button" class="nav-button" data-action="logout" data-testid="logout">Salir</button></div>
@@ -357,14 +375,72 @@ function appBar() {
 }
 
 function workspaceBar() {
+  const organizationOptions = state.organizations
+    .map((organization) => `<option value="${escapeHtml(organization.id)}"${organization.id === state.selectedOrganizationId ? " selected" : ""}>${escapeHtml(organization.nombre)}</option>`)
+    .join("");
   const options = state.companies
+    .filter((company) => !state.selectedOrganizationId || company.organizacionId === state.selectedOrganizationId)
     .map((company) => `<option value="${escapeHtml(company.id)}"${company.id === state.selectedCompanyId ? " selected" : ""}>${escapeHtml(company.nombre)}</option>`)
     .join("");
   return `<header class="workspace-bar">
     <div class="workspace-brand"><span class="pulse-dot" aria-hidden="true"></span><strong>Pulse</strong></div>
-    <label class="company-switcher" for="company-switcher"><span>Empresa activa</span><select id="company-switcher" data-testid="company-switcher">${options}</select></label>
+    <div class="workspace-switchers">
+      <label class="company-switcher" for="organization-switcher"><span>Organización</span><select id="organization-switcher" data-testid="organization-switcher">${organizationOptions}</select></label>
+      <label class="company-switcher" for="company-switcher"><span>Empresa</span><select id="company-switcher" data-testid="company-switcher">${options}</select></label>
+    </div>
     <div class="workspace-user"><span>${escapeHtml(state.user?.nombre || "Usuario")}</span><span class="user-avatar" aria-hidden="true">${escapeHtml((state.user?.nombre || "U").slice(0, 1))}</span></div>
   </header>`;
+}
+
+function spacesView() {
+  const organization = organizationById(state.selectedOrganizationId);
+  const organizationRole = state.user?.rolesOrganizacion?.[organization?.id] || "agent";
+  const canManage = ["owner", "admin"].includes(organizationRole);
+  const companyItems = state.companies
+    .filter((company) => company.organizacionId === organization?.id)
+    .map((company) => `<li><div><strong>${escapeHtml(company.nombre)}</strong><span>${escapeHtml(company.industria || "Sin industria")}</span></div>${company.id === state.selectedCompanyId ? '<span class="pill">Activa</span>' : `<button type="button" class="tiny" data-action="switch-company" data-id="${escapeHtml(company.id)}">Abrir</button>`}</li>`)
+    .join("");
+  return `<header class="topbar">
+      <div><h2>Organizaciones y empresas</h2><p class="lede">Tu usuario puede pertenecer a varios espacios. La organización agrupa empresas; la bandeja siempre trabaja con una empresa activa.</p></div>
+      <button type="button" class="ghost" data-action="nav-inbox">Volver a los mensajes</button>
+    </header>
+    ${banner()}
+    <div class="spaces-layout">
+      <section class="panel space-summary">
+        <div class="space-heading"><div><h3>${escapeHtml(organization?.nombre || "Organización")}</h3><p>${escapeHtml(organizationRole === "owner" ? "Propietario" : organizationRole === "admin" ? "Administrador" : "Miembro")}</p></div><span class="pill">${state.organizations.length} ${state.organizations.length === 1 ? "organización" : "organizaciones"}</span></div>
+        <ul class="space-company-list">${companyItems || "<li>No hay empresas disponibles.</li>"}</ul>
+      </section>
+      <section class="panel">
+        <h3>Agregar empresa</h3>
+        <p class="hint">La empresa nueva queda dentro de <strong>${escapeHtml(organization?.nombre || "la organización activa")}</strong> y mantiene sus propios canales, ficha y conversaciones.</p>
+        ${canManage ? `<form class="grid" data-action="create-company" data-testid="create-company-form">
+          <label>Nombre de la empresa<input id="space-company-name" maxlength="160" required /></label>
+          <label>Industria o actividad<input id="space-company-industry" maxlength="240" required /></label>
+          <button class="primary span-2" type="submit" data-testid="create-company-submit">Agregar y abrir empresa</button>
+        </form>` : '<p class="hint">Pide a un propietario o administrador que agregue otra empresa.</p>'}
+      </section>
+      <section class="panel">
+        <h3>Nueva organización</h3>
+        <p class="hint">Crea otro espacio independiente con su primera empresa. Serás propietario de ambos.</p>
+        <form class="grid" data-action="create-organization" data-testid="create-organization-form">
+          <label class="span-2">Nombre de la organización<input id="new-organization-name" maxlength="160" required /></label>
+          <label>Primera empresa<input id="new-organization-company" maxlength="160" required /></label>
+          <label>Industria o actividad<input id="new-organization-industry" maxlength="240" required /></label>
+          <button class="primary span-2" type="submit" data-testid="create-organization-submit">Crear organización</button>
+        </form>
+      </section>
+      <section class="panel security-panel">
+        <h3>Seguridad de la cuenta</h3>
+        <p class="hint">Cambia la clave de tu usuario. Al terminar tendrás que entrar nuevamente en todos tus dispositivos.</p>
+        <form class="grid" data-action="change-password" data-testid="change-password-form">
+          <label class="span-2">Clave actual<input id="current-password" type="password" autocomplete="current-password" required /></label>
+          <label>Clave nueva<input id="new-password" type="password" autocomplete="new-password" minlength="6" maxlength="128" pattern="(?=.*[A-Za-z])(?=.*[0-9]).{6,128}" required /></label>
+          <label>Confirmar clave<input id="confirm-new-password" type="password" autocomplete="new-password" minlength="6" maxlength="128" required /></label>
+          <button class="primary span-2" type="submit" data-testid="change-password-submit">Cambiar clave</button>
+        </form>
+        <p class="recovery-status">Recuperación por correo: <strong>pendiente de configurar SMTP</strong>. Hasta entonces, un administrador local puede restablecer el acceso sin ver tu clave anterior.</p>
+      </section>
+    </div>`;
 }
 
 function companyView() {
@@ -672,8 +748,9 @@ function settingsView() {
 }
 
 function banner() {
-  if (!state.error) return "";
-  return `<p class="error" data-testid="form-error" role="alert">${escapeHtml(state.error)}</p>`;
+  if (state.error) return `<p class="error" data-testid="form-error" role="alert">${escapeHtml(state.error)}</p>`;
+  if (state.notice) return `<p class="success" data-testid="form-notice" role="status">${escapeHtml(state.notice)}</p>`;
+  return "";
 }
 
 function fillAccountSelect() {
@@ -729,23 +806,25 @@ app.addEventListener("input", (event) => {
 });
 
 app.addEventListener("change", async (event) => {
+  if (event.target.id === "organization-switcher") {
+    const company = state.companies.find((item) => item.organizacionId === event.target.value);
+    if (!company) {
+      state.error = "Esta organización todavía no tiene una empresa disponible.";
+      render();
+      return;
+    }
+    try {
+      await switchCompany(company.id);
+    } catch (error) {
+      state.error = error.message;
+      render();
+    }
+    return;
+  }
   if (event.target.id === "company-switcher") {
     try {
       event.target.disabled = true;
-      await api("/api/sesion/empresa", {
-        method: "POST",
-        body: JSON.stringify({ empresaId: event.target.value }),
-      });
-      state.selectedPerson = null;
-      state.selectedMessageId = null;
-      state.filterChannel = "";
-      state.searchQuery = "";
-      state.mobilePane = "list";
-      state.settingsDraft = null;
-      await load();
-      ensureSelection();
-      render();
-      fillAccountSelect();
+      await switchCompany(event.target.value);
     } catch (error) {
       state.error = error.message;
       render();
@@ -784,6 +863,9 @@ app.addEventListener("submit", async (event) => {
     "save-account-new": ["[data-testid='save-account']", "Agregando"],
     "save-message": ["[data-testid='save-message']", "Agregando"],
     "save-settings": ["[data-testid='save-settings']", "Guardando"],
+    "create-company": ["[data-testid='create-company-submit']", "Creando empresa"],
+    "create-organization": ["[data-testid='create-organization-submit']", "Creando organización"],
+    "change-password": ["[data-testid='change-password-submit']", "Cambiando clave"],
   }[action];
   if (busy) setControlBusy(busy[0], true, busy[1]);
   try {
@@ -795,6 +877,9 @@ app.addEventListener("submit", async (event) => {
     if (action === "save-account-new") await createAccount();
     if (action === "save-message") await createMessage();
     if (action === "save-settings") await saveSettings();
+    if (action === "create-company") await createSpaceCompany();
+    if (action === "create-organization") await createOrganization();
+    if (action === "change-password") await changePassword();
   } catch (error) {
     if (["login", "registration-user", "register"].includes(action)) {
       const registering = action !== "login";
@@ -802,11 +887,17 @@ app.addEventListener("submit", async (event) => {
       const node = document.querySelector(registering ? '[data-testid="registration-error"]' : '[data-testid="login-error"]');
       if (node) node.textContent = error.message;
       const ids = registering
-        ? ["registration-name", "registration-last-name", "registration-company", "registration-industry", "registration-user", "registration-email", "registration-password", "registration-confirm"]
+        ? ["registration-name", "registration-last-name", "registration-company", "registration-industry", "registration-user", "registration-email", "registration-password", "registration-confirm", "registration-invite"]
         : ["login-user", "login-password"];
       for (const id of ids) {
         document.getElementById(id)?.setAttribute("aria-invalid", "true");
       }
+      return;
+    }
+    if (["create-company", "create-organization", "change-password"].includes(action)) {
+      state.error = error.message;
+      state.view = "espacios";
+      render();
       return;
     }
     state.error = error.message;
@@ -865,6 +956,9 @@ app.addEventListener("click", async (event) => {
       state.authMode = "register";
       renderLogin();
       document.querySelector("#registration-name")?.focus();
+    } else if (action === "show-recovery") {
+      state.authMode = "recover";
+      renderLogin();
     } else if (action === "retry-boot") {
       await boot();
     } else if (action === "nav-inbox") {
@@ -878,9 +972,11 @@ app.addEventListener("click", async (event) => {
       arrivalNote = "";
       await api("/api/sesion", { method: "DELETE" });
       state.companies = [];
+      state.organizations = [];
       state.accounts = [];
       state.messages = [];
       state.selectedCompanyId = null;
+      state.selectedOrganizationId = null;
       state.selectedPerson = null;
       state.selectedMessageId = null;
       state.filterChannel = "";
@@ -897,12 +993,19 @@ app.addEventListener("click", async (event) => {
       state.error = "";
       state.settingsDraft = structuredClone(companyById(state.selectedCompanyId)?.ajustes || {});
       render();
+    } else if (action === "open-spaces") {
+      state.view = "espacios";
+      state.notice = "";
+      state.error = "";
+      render();
     } else if (action === "open-company") {
       state.view = "empresa";
       state.selectedCompanyId = button.dataset.id;
       state.notice = "";
       setDraftFromCompany(companyById(button.dataset.id));
       render();
+    } else if (action === "switch-company") {
+      await switchCompany(button.dataset.id);
     } else if (action === "delete-account") {
       if (!window.confirm("¿Quitar esta cuenta? Esta acción no se puede deshacer.")) return;
       await api(`/api/cuentas/${button.dataset.id}`, { method: "DELETE" });
@@ -1084,6 +1187,74 @@ app.addEventListener("click", async (event) => {
   }
 });
 
+async function switchCompany(companyId) {
+  await api("/api/sesion/empresa", {
+    method: "POST",
+    body: JSON.stringify({ empresaId: companyId }),
+  });
+  state.selectedPerson = null;
+  state.selectedMessageId = null;
+  state.filterChannel = "";
+  state.searchQuery = "";
+  state.mobilePane = "list";
+  state.settingsDraft = null;
+  await load();
+  ensureSelection();
+  render();
+  fillAccountSelect();
+}
+
+async function createSpaceCompany() {
+  await api(`/api/organizaciones/${state.selectedOrganizationId}/empresas`, {
+    method: "POST",
+    body: JSON.stringify({
+      nombre: document.querySelector("#space-company-name").value,
+      industria: document.querySelector("#space-company-industry").value,
+    }),
+  });
+  await load();
+  state.view = "espacios";
+  state.notice = "Empresa creada y activada.";
+  render();
+}
+
+async function createOrganization() {
+  await api("/api/organizaciones", {
+    method: "POST",
+    body: JSON.stringify({
+      nombre: document.querySelector("#new-organization-name").value,
+      empresa: document.querySelector("#new-organization-company").value,
+      industria: document.querySelector("#new-organization-industry").value,
+    }),
+  });
+  await load();
+  state.view = "espacios";
+  state.notice = "Organización creada con su primera empresa.";
+  render();
+}
+
+async function changePassword() {
+  const nextPassword = document.querySelector("#new-password").value;
+  const confirmation = document.querySelector("#confirm-new-password").value;
+  if (nextPassword !== confirmation) throw new Error("Las claves nuevas no coinciden.");
+  await api("/api/cuenta/cambiar-clave", {
+    method: "POST",
+    body: JSON.stringify({
+      claveActual: document.querySelector("#current-password").value,
+      claveNueva: nextPassword,
+    }),
+  });
+  stopPolling();
+  state.user = null;
+  state.organizations = [];
+  state.companies = [];
+  state.accounts = [];
+  state.messages = [];
+  state.authMode = "login";
+  state.loginNotice = "Clave cambiada. Entra nuevamente con tu clave nueva.";
+  renderLogin();
+}
+
 async function saveSettings() {
   const company = companyById(state.selectedCompanyId);
   const payload = { ...(state.settingsDraft || {}) };
@@ -1197,6 +1368,7 @@ function renderLogin(message = "") {
   app.dataset.testid = "app-ready";
   const invalid = message ? ` aria-invalid="true"` : "";
   const registering = state.registrationEnabled && state.authMode === "register";
+  const recovering = state.authMode === "recover";
   const accessForm = registering
     ? `<form class="login-card registration-card" data-action="registration-user" data-testid="registration-form" aria-describedby="registration-error">
           <div class="auth-heading">
@@ -1223,6 +1395,7 @@ function renderLogin(message = "") {
             <label for="registration-organization">Organización<input id="registration-organization" data-testid="registration-organization" autocomplete="organization" maxlength="160" required${invalid} /></label>
             <label for="registration-company">Primera empresa<input id="registration-company" data-testid="registration-company" maxlength="160" required${invalid} /></label>
             <label for="registration-industry">Industria o actividad<input id="registration-industry" data-testid="registration-industry" maxlength="240" placeholder="Ej. seguros, restaurante, salud" required${invalid} /></label>
+            ${state.inviteRequired ? `<label for="registration-invite">Código de invitación<input id="registration-invite" data-testid="registration-invite" type="password" autocomplete="one-time-code" maxlength="128" aria-describedby="registration-invite-hint registration-error" required${invalid} /><small id="registration-invite-hint">Solicítalo al administrador de Pulse.</small></label>` : ""}
             <div class="registration-actions">
               <button class="ghost" type="button" data-action="registration-back">Volver</button>
               <button class="primary" type="submit" data-testid="registration-submit">Crear cuenta y entrar</button>
@@ -1230,21 +1403,28 @@ function renderLogin(message = "") {
           </fieldset>
           <p class="error" id="registration-error" data-testid="registration-error" role="alert">${escapeHtml(message)}</p>
         </form>`
-    : `<form class="login-card" data-action="login" data-testid="login-form" aria-describedby="login-error">
+    : recovering
+      ? `<section class="login-card recovery-card" aria-labelledby="recovery-title">
+          <h2 id="recovery-title">Recupera tu acceso</h2>
+          <p>El envío automático por correo todavía necesita un servidor SMTP. Mientras se configura, pide al administrador local que restablezca tu clave; no necesita conocer tu clave anterior.</p>
+          <button class="ghost" type="button" data-action="show-login">Volver a entrar</button>
+        </section>`
+      : `<form class="login-card" data-action="login" data-testid="login-form" aria-describedby="login-error">
           <h2 id="login-title">Entra a Pulse</h2>
+          ${state.loginNotice ? `<p class="success" role="status">${escapeHtml(state.loginNotice)}</p>` : ""}
           <label for="login-user">Usuario<input id="login-user" data-testid="login-user" autocomplete="username" aria-describedby="login-error" required${invalid} /></label>
           <label for="login-password">Clave<input id="login-password" data-testid="login-password" type="password" autocomplete="current-password" aria-describedby="login-error" required${invalid} /></label>
           <button class="primary" type="submit" data-testid="login-submit">Entrar</button>
           <p class="error" id="login-error" data-testid="login-error" role="alert">${escapeHtml(message)}</p>
         </form>`;
-  const authSwitch = state.registrationEnabled
+  const authSwitch = state.registrationEnabled && !recovering
     ? `<div class="auth-switch" aria-label="Acceso a Pulse">
         <button type="button" data-action="show-login" aria-pressed="${registering ? "false" : "true"}">Entrar</button>
         <button type="button" data-action="show-registration" aria-pressed="${registering ? "true" : "false"}">Crear cuenta</button>
       </div>`
     : "";
   app.innerHTML = `<main class="gate" id="contenido">
-    <a class="skip" href="#${registering ? "registration-name" : "login-user"}">Saltar al acceso</a>
+    <a class="skip" href="#${registering ? "registration-name" : recovering ? "recovery-title" : "login-user"}">Saltar al acceso</a>
     <div class="gate-frame">
       <header class="gate-story">
         <h1 class="lockup">${brandLockup()}</h1>
@@ -1255,7 +1435,8 @@ function renderLogin(message = "") {
       <section class="gate-panel">
         ${authSwitch}
         ${accessForm}
-        <aside class="demo-logins" data-testid="demo-logins" ${registering ? "hidden" : ""}>
+        ${!registering && !recovering ? '<button type="button" class="auth-help" data-action="show-recovery">¿Olvidaste tu clave?</button>' : ""}
+        <aside class="demo-logins" data-testid="demo-logins" ${registering || recovering ? "hidden" : ""}>
           <h2>Accesos de demostración</h2>
           <div class="demo-row">
             <strong>Cafetería Lumen</strong>
@@ -1285,6 +1466,7 @@ async function submitLogin() {
     }),
   });
   state.error = "";
+  state.loginNotice = "";
   state.view = "bandeja";
   renderInboxSkeleton();
   await load();
@@ -1313,6 +1495,7 @@ async function submitRegistration() {
       usuario: document.querySelector("#registration-user").value,
       correo: document.querySelector("#registration-email").value,
       clave: password,
+      invitacion: document.querySelector("#registration-invite")?.value || "",
     }),
   });
   state.error = "";

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Jokma Pulse</string>
+    <string name="title_activity_main">Jokma Pulse</string>
+    <string name="package_name">app.jokma.pulse</string>
+    <string name="custom_url_scheme">app.jokma.pulse</string>
+</resources>

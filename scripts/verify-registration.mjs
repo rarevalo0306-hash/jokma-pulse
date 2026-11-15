@@ -24,6 +24,8 @@ const suffix = randomBytes(6).toString("hex");
 const email = `verificacion-${suffix}@pulse.local.invalid`;
 const username = `verificacion-${suffix}`;
 const password = "abc123";
+const inviteResult = spawnSync("/usr/bin/security", ["find-generic-password", "-a", process.env.USER, "-s", "app.jokma.pulse.signup-invite", "-w"], { encoding: "utf8" });
+if (inviteResult.status !== 0 || !inviteResult.stdout.trim()) throw new Error("Falta el código de invitación en el llavero.");
 const admin = createSupabaseAdmin({ SUPABASE_URL: local.API_URL, SUPABASE_SECRET_KEY: local.SERVICE_ROLE_KEY });
 const sql = postgres(local.DB_URL, { max: 1, prepare: false });
 let userId = null;
@@ -47,6 +49,7 @@ try {
       usuario: username,
       correo: email,
       clave: password,
+      invitacion: inviteResult.stdout.trim(),
     }),
   });
   const responseText = await response.text();

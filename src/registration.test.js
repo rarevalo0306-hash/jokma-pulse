@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRegistrationService, registrationEnabled, validateRegistration } from "./registration.js";
+import { createRegistrationService, inviteCodeValid, registrationEnabled, validateRegistration } from "./registration.js";
 
 const VALID = {
   nombre: "Ricardo",
@@ -17,7 +17,13 @@ test("el registro solo se habilita explícitamente en Supabase local", () => {
   assert.equal(registrationEnabled({ PULSE_STORE: "supabase", PULSE_ALLOW_SIGNUP: "true" }), true);
   assert.equal(registrationEnabled({ PULSE_STORE: "supabase", PULSE_ALLOW_SIGNUP: "true", VERCEL: "1" }), false);
   assert.equal(registrationEnabled({ PULSE_STORE: "supabase", PULSE_ALLOW_SIGNUP: "true", NODE_ENV: "production" }), false);
+  assert.equal(registrationEnabled({ PULSE_STORE: "supabase", PULSE_ALLOW_SIGNUP: "true", NODE_ENV: "production", PULSE_SIGNUP_INVITE: "1234567890123456" }), true);
   assert.equal(registrationEnabled({ PULSE_STORE: "json", PULSE_ALLOW_SIGNUP: "true" }), false);
+});
+
+test("el código de invitación se compara sin filtrar su valor", () => {
+  assert.equal(inviteCodeValid("pulse-invite", "pulse-invite"), true);
+  assert.equal(inviteCodeValid("incorrecto", "pulse-invite"), false);
 });
 
 test("normaliza el alta y exige una clave de seis caracteres con letras y números", () => {

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import postgres from "postgres";
 
 function fail(status, message) {
@@ -19,9 +19,19 @@ function slug(value) {
 }
 
 export function registrationEnabled(env = process.env) {
-  const development = !env.VERCEL && String(env.NODE_ENV || "development").toLowerCase() !== "production";
-  return development && String(env.PULSE_STORE || "").toLowerCase() === "supabase"
-    && String(env.PULSE_ALLOW_SIGNUP || "").toLowerCase() === "true";
+  const production = String(env.NODE_ENV || "development").toLowerCase() === "production";
+  const inviteReady = String(env.PULSE_SIGNUP_INVITE || "").length >= 16;
+  return !env.VERCEL
+    && String(env.PULSE_STORE || "").toLowerCase() === "supabase"
+    && String(env.PULSE_ALLOW_SIGNUP || "").toLowerCase() === "true"
+    && (!production || inviteReady);
+}
+
+export function inviteCodeValid(received, expected) {
+  if (!String(expected || "")) return true;
+  const receivedHash = createHash("sha256").update(String(received || "")).digest();
+  const expectedHash = createHash("sha256").update(String(expected)).digest();
+  return timingSafeEqual(receivedHash, expectedHash);
 }
 
 export function validateRegistration(input = {}) {
@@ -94,10 +104,14 @@ export function createRegistrationService({
   admin,
   persistence = createRegistrationPersistence(),
   idFactory = randomUUID,
+  inviteCode = process.env.PULSE_SIGNUP_INVITE || "",
 } = {}) {
   if (!admin?.auth?.admin) throw new Error("El registro local necesita un cliente administrador de Supabase.");
 
   async function register(input) {
+    if (!inviteCodeValid(input?.invitacion, inviteCode)) {
+      throw fail(403, "El código de invitación no es válido.");
+    }
     const values = validateRegistration(input);
     const organizationId = idFactory();
     const companyId = idFactory();

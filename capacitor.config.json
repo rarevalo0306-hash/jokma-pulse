@@ -1,0 +1,15 @@
+{
+  "appId": "app.jokma.pulse",
+  "appName": "Jokma Pulse",
+  "webDir": "public",
+  "server": {
+    "url": "https://pulse.jokma.app",
+    "cleartext": false
+  },
+  "ios": {
+    "contentInset": "automatic"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

@@ -28,24 +28,22 @@ async function login() {
 try {
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
   await login();
-  const companyIds = await page.$eval('[data-testid="company-switcher"]', (node) =>
+  const organizationIds = await page.$eval('[data-testid="organization-switcher"]', (node) =>
     Object.fromEntries([...node.options].map((option) => [option.textContent.trim(), option.value])),
   );
-  const lumenId = Object.entries(companyIds).find(([label]) => label.includes("Cafetería Lumen"))?.[1];
-  const arceId = Object.entries(companyIds).find(([label]) => label.includes("Clínica Dental Arce"))?.[1];
-  assert.ok(lumenId);
-  assert.ok(arceId);
-  assert.equal(await page.$eval('[data-testid="company-switcher"]', (node) => node.value), lumenId);
-  assert.equal(await page.$eval('[data-testid="company-switcher"]', (node) => node.options.length), 2);
+  const lumenOrganizationId = Object.entries(organizationIds).find(([label]) => label.includes("Cafetería Lumen"))?.[1];
+  const arceOrganizationId = Object.entries(organizationIds).find(([label]) => label.includes("Clínica Dental Arce"))?.[1];
+  assert.ok(lumenOrganizationId);
+  assert.ok(arceOrganizationId);
+  assert.equal(await page.$eval('[data-testid="organization-switcher"]', (node) => node.value), lumenOrganizationId);
+  assert.equal(await page.$eval('[data-testid="company-switcher"]', (node) => node.options.length), 1);
   assert.ok(await page.$('[data-testid="person-mariana-lópez"]'));
   assert.equal(await page.$('[data-testid="person-jorge-ramírez"]'), null);
   await page.screenshot({ path: `${shots}desktop.png`, fullPage: true });
 
-  await page.select('[data-testid="company-switcher"]', arceId);
+  await page.select('[data-testid="organization-switcher"]', arceOrganizationId);
   await page.waitForFunction(
-    (expected) => document.querySelector('[data-testid="company-switcher"]')?.value === expected,
-    {},
-    arceId,
+    () => document.querySelector('[data-testid="company-switcher"]')?.selectedOptions[0]?.textContent.includes("Clínica Dental Arce"),
   );
   await page.waitForSelector('[data-testid="person-jorge-ramírez"]');
   assert.equal(await page.$('[data-testid="person-mariana-lópez"]'), null);
@@ -105,14 +103,19 @@ try {
   await page.reload({ waitUntil: "networkidle0" });
   await page.waitForSelector('[data-testid="company-switcher"]');
   assert.equal(await page.$eval(".inbox", (node) => node.dataset.mobilePane), "list");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await page.screenshot({ path: `${shots}mobile-list.png` });
   await page.$eval('[data-testid="person-jorge-ramírez"]', (node) => node.click());
   await page.waitForFunction(() => document.querySelector(".inbox")?.dataset.mobilePane === "conversation");
   await page.screenshot({ path: `${shots}mobile-conversation.png` });
   await page.$eval('[data-action="back-to-list"]', (node) => node.click());
   await page.waitForFunction(() => document.querySelector(".inbox")?.dataset.mobilePane === "list");
+  await page.$eval('[data-testid="nav-spaces"]', (node) => node.click());
+  await page.waitForSelector('[data-testid="change-password-form"]');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await page.screenshot({ path: `${shots}mobile-spaces.png`, fullPage: true });
 
-  console.log(JSON.stringify({ ok: true, companySwitch: true, approval: true, mobileListDetail: true }));
+  console.log(JSON.stringify({ ok: true, organizationSwitch: true, approval: true, mobileListDetail: true, mobileSpaces: true }));
 } finally {
   await browser.close();
 }

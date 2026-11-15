@@ -48,6 +48,7 @@ function check(result, context) {
 function companyFromRow(row) {
   const company = {
     id: row.id,
+    organizacionId: row.organization_id,
     nombre: row.name,
     industria: row.industry,
     servicios: row.services,
@@ -62,6 +63,14 @@ function companyFromRow(row) {
     ? row.settings._credential_status
     : {};
   return company;
+}
+
+function organizationFromRow(row) {
+  return {
+    id: row.id,
+    nombre: row.name,
+    slug: row.slug,
+  };
 }
 
 function companyPatch(company) {
@@ -146,7 +155,8 @@ function allowedCompanyIds(user) {
 
 export function createSupabaseStore(client, authStore, { createAuthClient, credentialStore } = {}) {
   async function load() {
-    const [companyRows, accountRows, contactRows, conversationRows, messageRows, noteRows] = await Promise.all([
+    const [organizationRows, companyRows, accountRows, contactRows, conversationRows, messageRows, noteRows] = await Promise.all([
+      client.from("organizations").select("id, slug, name"),
       client.from("companies").select("*"),
       client.from("channel_accounts").select("*"),
       client.from("contacts").select("*"),
@@ -154,6 +164,7 @@ export function createSupabaseStore(client, authStore, { createAuthClient, crede
       client.from("messages").select("*"),
       client.from("conversation_notes").select("*"),
     ]);
+    const organizations = check(organizationRows, "No se pudieron leer las organizaciones").map(organizationFromRow);
     const companies = check(companyRows, "No se pudieron leer las empresas").map(companyFromRow);
     const companyById = new Map(companies.map((item) => [item.id, item]));
     const accounts = check(accountRows, "No se pudieron leer las cuentas").map((row) =>
@@ -185,6 +196,7 @@ export function createSupabaseStore(client, authStore, { createAuthClient, crede
     );
     return {
       users: authStore.getState().users,
+      organizations,
       companies,
       accounts,
       messages,
@@ -222,18 +234,20 @@ export function createSupabaseStore(client, authStore, { createAuthClient, crede
       .eq("id", userId)
       .maybeSingle();
     if (profileResult.error || !profileResult.data) return null;
-    const membershipsResult = await client
-      .from("company_memberships")
-      .select("company_id")
-      .eq("user_id", userId)
-      .eq("active", true);
-    if (membershipsResult.error) return null;
+    const [membershipsResult, organizationMembershipsResult] = await Promise.all([
+      client.from("company_memberships").select("company_id, role").eq("user_id", userId).eq("active", true),
+      client.from("organization_memberships").select("organization_id, role").eq("user_id", userId).eq("active", true),
+    ]);
+    if (membershipsResult.error || organizationMembershipsResult.error) return null;
     const companyIds = (membershipsResult.data || []).map((item) => item.company_id);
     return {
       id: profileResult.data.id,
       nombre: profileResult.data.display_name,
       usuario: profileResult.data.username,
       empresaIds: companyIds,
+      rolesEmpresa: Object.fromEntries((membershipsResult.data || []).map((item) => [item.company_id, item.role])),
+      organizacionIds: (organizationMembershipsResult.data || []).map((item) => item.organization_id),
+      rolesOrganizacion: Object.fromEntries((organizationMembershipsResult.data || []).map((item) => [item.organization_id, item.role])),
       empresaPredeterminadaId: profileResult.data.default_company_id || companyIds[0] || null,
     };
   }
@@ -297,8 +311,16 @@ export function createSupabaseStore(client, authStore, { createAuthClient, crede
     const state = await load();
     const allowed = allowedCompanyIds(access.user);
     return {
-      user: { id: access.user.id, nombre: access.user.nombre, usuario: access.user.usuario },
+      user: {
+        id: access.user.id,
+        nombre: access.user.nombre,
+        usuario: access.user.usuario,
+        rolesEmpresa: access.user.rolesEmpresa || {},
+        rolesOrganizacion: access.user.rolesOrganizacion || {},
+      },
       activeCompanyId: companyId,
+      activeOrganizationId: access.company.organizacionId,
+      organizations: state.organizations.filter((item) => (access.user.organizacionIds || []).includes(item.id)),
       companies: state.companies.filter((item) => allowed.includes(item.id)),
       accounts: state.accounts.filter((item) => item.empresaId === companyId),
       messages: state.messages.filter((item) => item.empresaId === companyId),
@@ -306,16 +328,68 @@ export function createSupabaseStore(client, authStore, { createAuthClient, crede
   }
 
   async function createCompany(input) {
-    const company = { id: randomUUID(), ...readCompanyInput(input) };
+    const organizationId = clean(input.organizacionId, 80);
+    const userId = clean(input.usuarioId, 80);
+    if (!organizationId || !userId) throw fail(400, "Elige la organización de la empresa.");
+    const membership = await client
+      .from("organization_memberships")
+      .select("role")
+      .eq("organization_id", organizationId)
+      .eq("user_id", userId)
+      .eq("active", true)
+      .maybeSingle();
+    if (membership.error || !["owner", "admin"].includes(membership.data?.role)) {
+      throw fail(403, "Solo un propietario o administrador puede agregar empresas.");
+    }
+    const company = { id: randomUUID(), organizacionId: organizationId, ...readCompanyInput(input) };
     for (const field of COMPANY_FIELDS) company[field] ||= "";
     const result = await client.from("companies").insert({
       id: company.id,
+      organization_id: organizationId,
       slug: `empresa-${company.id.slice(0, 8)}`,
       ...companyPatch(company),
       settings: {},
     });
     check(result, "No se pudo crear la empresa");
+    const role = membership.data.role === "owner" ? "owner" : "admin";
+    const companyMembership = await client.from("company_memberships").insert({
+      company_id: company.id,
+      user_id: userId,
+      role,
+      active: true,
+    });
+    if (companyMembership.error) {
+      await client.from("companies").delete().eq("id", company.id);
+      check(companyMembership, "No se pudo dar acceso a la empresa");
+    }
     return company;
+  }
+
+  async function createOrganization(userId, input) {
+    const organizationName = clean(input.nombre, 160);
+    if (!organizationName) throw fail(400, "La organización necesita un nombre.");
+    const companyInput = readCompanyInput({ nombre: input.empresa, industria: input.industria });
+    const organizationId = randomUUID();
+    const companyId = randomUUID();
+    const organization = { id: organizationId, nombre: organizationName, slug: `organizacion-${organizationId.slice(0, 8)}` };
+    const company = { id: companyId, organizacionId: organizationId, ...companyInput };
+    for (const field of COMPANY_FIELDS) company[field] ||= "";
+    const createdOrganization = await client.from("organizations").insert({
+      id: organizationId,
+      slug: organization.slug,
+      name: organizationName,
+      created_by: userId,
+    });
+    check(createdOrganization, "No se pudo crear la organización");
+    try {
+      check(await client.from("organization_memberships").insert({ organization_id: organizationId, user_id: userId, role: "owner", active: true }), "No se pudo dar acceso a la organización");
+      check(await client.from("companies").insert({ id: companyId, organization_id: organizationId, slug: `empresa-${companyId.slice(0, 8)}`, ...companyPatch(company), settings: {} }), "No se pudo crear la primera empresa");
+      check(await client.from("company_memberships").insert({ company_id: companyId, user_id: userId, role: "owner", active: true }), "No se pudo dar acceso a la primera empresa");
+    } catch (error) {
+      await client.from("organizations").delete().eq("id", organizationId);
+      throw error;
+    }
+    return { organization, company };
   }
 
   async function updateCompany(id, input) {
@@ -722,6 +796,7 @@ export function createSupabaseStore(client, authStore, { createAuthClient, crede
     getCompanyWithSecrets,
     getCompaniesWithSecrets,
     createCompany,
+    createOrganization,
     updateCompany,
     updateSettings,
     deleteCompany,

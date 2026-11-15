@@ -54,6 +54,7 @@ try {
       NODE_ENV: "production",
       PULSE_FACEBOOK_STATE_SECRET: keychainSecret("app.jokma.pulse.facebook-state"),
       PULSE_SESSION_SECRET: keychainSecret("app.jokma.pulse.session"),
+      PULSE_SIGNUP_INVITE: keychainSecret("app.jokma.pulse.signup-invite"),
     },
   });
 

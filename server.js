@@ -8,6 +8,7 @@ import { createSupabaseAdmin, createSupabaseAuthClient, supabaseStoreEnabled } f
 import { createSupabaseStore } from "./src/supabase-store.js";
 import { createCredentialStore } from "./src/credentials.js";
 import { createRegistrationService, registrationEnabled } from "./src/registration.js";
+import { createAccountSecurity } from "./src/account-security.js";
 import { sendEmailReply, syncEmailInbox } from "./src/email.js";
 import { listGoogleReviews, replyGoogleReview } from "./src/google-reviews.js";
 import { listXMessages, sendXMessage } from "./src/x.js";
@@ -46,6 +47,9 @@ const store = usingSupabase
   : jsonStore;
 const allowRegistration = registrationEnabled();
 const registration = allowRegistration ? createRegistrationService({ admin: supabaseAdmin }) : null;
+const accountSecurity = usingSupabase
+  ? createAccountSecurity({ admin: supabaseAdmin, authenticate: (username, password) => store.authenticate(username, password) })
+  : null;
 const app = express();
 const FACEBOOK_VERIFY_TOKEN = process.env.PULSE_FACEBOOK_VERIFY_TOKEN || "jokma-pulse-facebook";
 
@@ -61,6 +65,27 @@ app.use(
     },
   }),
 );
+
+function routeLimiter({ attempts, windowMs }) {
+  const visits = new Map();
+  return (req, res, next) => {
+    const client = String(req.headers["cf-connecting-ip"] || req.headers["x-forwarded-for"] || req.ip || "local").split(",")[0].trim();
+    const now = Date.now();
+    const current = visits.get(client);
+    const record = !current || current.resetAt <= now ? { count: 0, resetAt: now + windowMs } : current;
+    record.count += 1;
+    visits.set(client, record);
+    if (record.count > attempts) {
+      res.setHeader("Retry-After", String(Math.ceil((record.resetAt - now) / 1000)));
+      res.status(429).json({ error: "Demasiados intentos. Espera unos minutos antes de volver a probar." });
+      return;
+    }
+    next();
+  };
+}
+
+const limitLogin = routeLimiter({ attempts: 20, windowMs: 15 * 60 * 1000 });
+const limitRegistration = routeLimiter({ attempts: 5, windowMs: 60 * 60 * 1000 });
 
 function fail(res, error) {
   const status = error.status || 500;
@@ -130,10 +155,14 @@ app.get("/api/salud", (_req, res) => {
 });
 
 app.get("/api/configuracion-publica", (_req, res) => {
-  res.json({ registroHabilitado: allowRegistration });
+  res.json({
+    registroHabilitado: allowRegistration,
+    codigoInvitacionRequerido: Boolean(process.env.PULSE_SIGNUP_INVITE),
+    recuperacionCorreoHabilitada: false,
+  });
 });
 
-app.post("/api/registro", async (req, res) => {
+app.post("/api/registro", limitRegistration, async (req, res) => {
   if (!registration) {
     res.status(404).json({ error: "El registro no está habilitado en este entorno." });
     return;
@@ -147,7 +176,7 @@ app.post("/api/registro", async (req, res) => {
   }
 });
 
-app.post("/api/sesion", async (req, res) => {
+app.post("/api/sesion", limitLogin, async (req, res) => {
   try {
     const access = await store.authenticate(req.body?.usuario, req.body?.clave);
     if (!access) {
@@ -193,8 +222,40 @@ app.post("/api/sesion/empresa", requireSession, async (req, res) => {
   }
 });
 
-app.post("/api/empresas", requireSession, (_req, res) => {
-  res.status(403).json({ error: "La creación de organizaciones adicionales todavía no está disponible aquí." });
+app.post("/api/organizaciones", requireSession, async (req, res) => {
+  try {
+    if (!store.createOrganization) throw Object.assign(new Error("Esta función necesita Supabase local."), { status: 503 });
+    const created = await store.createOrganization(req.usuario.id, req.body || {});
+    res.setHeader("Set-Cookie", sessionCookie(req.usuario.id, created.company.id));
+    res.status(201).json(created);
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.post("/api/organizaciones/:id/empresas", requireSession, async (req, res) => {
+  try {
+    const company = await store.createCompany({
+      ...(req.body || {}),
+      organizacionId: req.params.id,
+      usuarioId: req.usuario.id,
+    });
+    res.setHeader("Set-Cookie", sessionCookie(req.usuario.id, company.id));
+    res.status(201).json(company);
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+app.post("/api/cuenta/cambiar-clave", requireSession, limitLogin, async (req, res) => {
+  try {
+    if (!accountSecurity) throw Object.assign(new Error("Esta función necesita Supabase Auth."), { status: 503 });
+    const result = await accountSecurity.changePassword(req.usuario, req.body || {});
+    res.setHeader("Set-Cookie", clearSessionCookie());
+    res.json(result);
+  } catch (error) {
+    fail(res, error);
+  }
 });
 
 app.put("/api/empresas/:id/ajustes", requireSession, async (req, res) => {

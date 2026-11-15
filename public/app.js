@@ -31,6 +31,7 @@ const state = {
   invitationToken: "",
   invitationPreview: null,
   invitationLink: "",
+  integraciones: {},
 };
 
 let knownMessageIds = null;
@@ -290,6 +291,7 @@ async function load() {
   state.modelos = payload.modelos || [];
   state.parametros = payload.parametros || [];
   state.conexiones = payload.conexiones || [];
+  state.integraciones = payload.integraciones || {};
   state.selectedCompanyId = payload.activeCompanyId || state.companies[0]?.id || null;
   state.selectedOrganizationId = payload.activeOrganizationId || companyById(state.selectedCompanyId)?.organizacionId || state.organizations[0]?.id || null;
   if (state.selectedCompanyId && !companyById(state.selectedCompanyId)) {
@@ -774,6 +776,7 @@ function settingControl(row, draft, company) {
 
 function settingRows(rows, draft, company) {
   return rows
+    .filter((row) => !row.oculto)
     .map(
       (row) => `<tr>
         <th scope="row">${escapeHtml(row.nombre)}</th>
@@ -855,19 +858,22 @@ function settingsView() {
     .filter((group) => !group.oculto)
     .map((group) => {
       const check = connectionCheck(group.red, company, draft);
+      const metaAppReady = state.integraciones?.metaAppConfigurada || Boolean(company?.credenciales?.meta_app_secret);
       const facebook =
         group.red === "Facebook"
           ? `<div class="settings-connect">
-              <p class="hint">Crea una app de Meta solo para Pulse. Pega aquí su identificador y su secreto, guarda, y pulsa Conectar Facebook. El botón abre el inicio de sesión y guarda la página de esta empresa. En la app, las URI de redirección válidas son <code data-testid="facebook-redirect">https://jokma-pulse.vercel.app/api/facebook/callback</code> y <code data-testid="facebook-redirect-pulse">https://pulse.jokma.app/api/facebook/callback</code>.</p>
+              <p class="hint">Pulse usa la app global de Meta <code>1036513856135777</code>; ninguna empresa tiene que pegar el secreto de la app. El botón abre el inicio de sesión y guarda únicamente la página y el token cifrado de esta empresa. La URI principal es <code data-testid="facebook-redirect-pulse">https://pulse.jokma.app/api/facebook/callback</code>.</p>
               <p class="hint">Webhook de Messenger: <code>https://pulse.jokma.app/api/facebook/webhook</code>. Token de verificación: <code>jokma-pulse-facebook</code>.</p>
-              <button type="button" class="primary" data-action="facebook-login" data-testid="facebook-login">Conectar Facebook</button>
+              ${metaAppReady ? "" : '<p class="hint">El administrador debe ejecutar <code>npm run configure:meta-app</code> una sola vez en el servidor.</p>'}
+              <button type="button" class="primary" data-action="facebook-login" data-testid="facebook-login" ${metaAppReady ? "" : "disabled"}>Conectar Facebook</button>
             </div>`
           : "";
       const instagram =
         group.red === "Instagram"
           ? `<div class="settings-connect">
-              <p class="hint">Usa la misma app de Meta que Facebook, identificador <code data-testid="instagram-app">1036513856135777</code>. El botón guarda la cuenta de Instagram de esta empresa. En la app, las URI de redirección válidas son <code data-testid="instagram-redirect">https://jokma-pulse.vercel.app/api/instagram/callback</code> y <code data-testid="instagram-redirect-pulse">https://pulse.jokma.app/api/instagram/callback</code>. En Instagram, Webhooks, la URL de devolución es <code data-testid="instagram-webhook">https://pulse.jokma.app/api/instagram/webhook</code> y el token de verificación es <code data-testid="instagram-verify">jokma-pulse-instagram</code>.</p>
-              <button type="button" class="primary" data-action="instagram-login" data-testid="instagram-login">Conectar Instagram</button>
+              <p class="hint">Usa la app global de Meta <code data-testid="instagram-app">1036513856135777</code>. El botón guarda únicamente la cuenta profesional y su token cifrado para esta empresa. La URI principal es <code data-testid="instagram-redirect-pulse">https://pulse.jokma.app/api/instagram/callback</code>. En Instagram, Webhooks, la URL de devolución es <code data-testid="instagram-webhook">https://pulse.jokma.app/api/instagram/webhook</code> y el token de verificación es <code data-testid="instagram-verify">jokma-pulse-instagram</code>.</p>
+              ${metaAppReady ? "" : '<p class="hint">El administrador debe ejecutar <code>npm run configure:meta-app</code> una sola vez en el servidor.</p>'}
+              <button type="button" class="primary" data-action="instagram-login" data-testid="instagram-login" ${metaAppReady ? "" : "disabled"}>Conectar Instagram</button>
             </div>`
           : "";
       const email =

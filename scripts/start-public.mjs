@@ -62,6 +62,28 @@ function recoverySmtpEnvironment() {
   }
 }
 
+function metaAppEnvironment() {
+  const result = command("/usr/bin/security", [
+    "find-generic-password",
+    "-a",
+    account,
+    "-s",
+    "app.jokma.pulse.meta-app",
+    "-w",
+  ]);
+  if (result.status !== 0 || !String(result.stdout || "").trim()) return {};
+  try {
+    const configuration = JSON.parse(result.stdout.trim());
+    if (!/^\d{6,30}$/.test(String(configuration.appId || "")) || !configuration.appSecret) return {};
+    return {
+      PULSE_META_APP_ID: String(configuration.appId),
+      PULSE_META_APP_SECRET: String(configuration.appSecret),
+    };
+  } catch {
+    return {};
+  }
+}
+
 function ensureLocalServices() {
   if (command("/opt/homebrew/bin/colima", ["status"]).status !== 0) {
     const started = command("/opt/homebrew/bin/colima", ["start"], { timeout: 180_000 });
@@ -86,6 +108,7 @@ try {
       PULSE_FACEBOOK_STATE_SECRET: keychainSecret("app.jokma.pulse.facebook-state"),
       PULSE_SESSION_SECRET: keychainSecret("app.jokma.pulse.session"),
       PULSE_SIGNUP_INVITE: keychainSecret("app.jokma.pulse.signup-invite"),
+      ...metaAppEnvironment(),
       ...recoverySmtpEnvironment(),
     },
   });

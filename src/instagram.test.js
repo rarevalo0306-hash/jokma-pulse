@@ -49,6 +49,14 @@ test("el enlace de Instagram usa la app de Pulse y no lleva el secreto", () => {
   assert.match(url.searchParams.get("scope"), /instagram_business_manage_comments/);
   assert.equal(started.url.includes("secreto-de-prueba"), false);
   assert.equal(beginLogin({ id: "co-lumen", nombre: "Cafetería Lumen" }, "https://pulse.jokma.app").motivo, "sin_app");
+  const global = beginLogin(
+    { id: "co-lumen", nombre: "Cafetería Lumen" },
+    "https://pulse.jokma.app",
+    now,
+    { PULSE_META_APP_ID: PULSE_APP_ID, PULSE_META_APP_SECRET: "secreto-global-de-prueba" },
+  );
+  assert.equal(new URL(global.url).searchParams.get("client_id"), PULSE_APP_ID);
+  assert.equal(global.url.includes("secreto-global-de-prueba"), false);
   assert.equal(webhookChallenge({ "hub.mode": "subscribe", "hub.verify_token": "jokma-pulse-instagram", "hub.challenge": "reto-1" }), "reto-1");
   assert.equal(webhookChallenge({ "hub.mode": "subscribe", "hub.verify_token": "otro", "hub.challenge": "reto-1" }), null);
 });

@@ -1,10 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { normalizeSettings } from "./settings.js";
-import { GRAPH_VERSION, readState, requestOrigin, signState } from "./facebook.js";
+import { DEFAULT_META_APP_ID, GRAPH_VERSION, metaAppCredentials, readState, requestOrigin, signState } from "./facebook.js";
 
 export const REDIRECT_PATH = "/api/instagram/callback";
 export const WEBHOOK_PATH = "/api/instagram/webhook";
-export const PULSE_APP_ID = "1036513856135777";
+export const PULSE_APP_ID = DEFAULT_META_APP_ID;
 export const VERIFY_TOKEN = process.env.PULSE_INSTAGRAM_VERIFY_TOKEN || "jokma-pulse-instagram";
 export const SCOPES = [
   "pages_show_list",
@@ -28,16 +28,12 @@ export function redirectUri(origin) {
   return `${String(origin || "").replace(/\/$/, "")}${REDIRECT_PATH}`;
 }
 
-export function appCredentials(company) {
-  const settings = normalizeSettings(company?.ajustes, company);
-  const appId = settings.meta_app_id || PULSE_APP_ID;
-  const secret = settings.meta_app_secret;
-  if (!secret) return { motivo: "sin_app" };
-  return { appId, secret };
+export function appCredentials(company, env = process.env) {
+  return metaAppCredentials(company, env);
 }
 
-export function beginLogin(company, origin, now = Date.now()) {
-  const creds = appCredentials(company);
+export function beginLogin(company, origin, now = Date.now(), env = process.env) {
+  const creds = appCredentials(company, env);
   if (!creds.appId) return { motivo: "sin_app" };
   if (!creds.secret) return creds;
   const url = new URL(`https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`);
@@ -194,10 +190,9 @@ export function verifySignature(raw, header, secret) {
   return same(signature, expected);
 }
 
-export function acceptedSignature(companies, raw, header) {
-  return (companies || []).some((company) =>
-    verifySignature(raw, header, company?.ajustes?.meta_app_secret || ""),
-  );
+export function acceptedSignature(companies, raw, header, env = process.env) {
+  const secrets = [env.PULSE_META_APP_SECRET, ...(companies || []).map((company) => company?.ajustes?.meta_app_secret)];
+  return secrets.some((secret) => verifySignature(raw, header, secret || ""));
 }
 
 export function webhookChallenge(query, token = VERIFY_TOKEN) {

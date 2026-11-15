@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { normalizeSettings } from "./settings.js";
 
 export const GRAPH_VERSION = "v27.0";
+export const DEFAULT_META_APP_ID = "1036513856135777";
 export const REDIRECT_PATH = "/api/facebook/callback";
 export const PRODUCTION_REDIRECT = "https://jokma-pulse.vercel.app/api/facebook/callback";
 export const PULSE_REDIRECT = "https://pulse.jokma.app/api/facebook/callback";
@@ -69,12 +70,17 @@ export function loginUrl({ appId, origin, companyId, now }) {
   return url.toString();
 }
 
-export function beginLogin(company, origin, now = Date.now()) {
-  const settings = normalizeSettings(company?.ajustes, company);
-  const appId = settings.meta_app_id;
-  const secret = settings.meta_app_secret;
+export function beginLogin(company, origin, now = Date.now(), env = process.env) {
+  const { appId, secret } = metaAppCredentials(company, env);
   if (!appId || !secret) return { motivo: "sin_app" };
   return { url: loginUrl({ appId, origin, companyId: company.id, now }) };
+}
+
+export function metaAppCredentials(company, env = process.env) {
+  const settings = normalizeSettings(company?.ajustes, company);
+  const appId = String(env.PULSE_META_APP_ID || settings.meta_app_id || DEFAULT_META_APP_ID).trim();
+  const secret = String(env.PULSE_META_APP_SECRET || settings.meta_app_secret || "").trim();
+  return secret ? { appId, secret } : { appId, motivo: "sin_app" };
 }
 
 export function callbackMotivo(query) {

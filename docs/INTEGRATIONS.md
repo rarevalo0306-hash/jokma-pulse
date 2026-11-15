@@ -4,6 +4,8 @@ Pulse no usa n8n. Cada empresa conserva sus identificadores públicos en `compan
 
 ## Meta
 
+La app de Meta pertenece a Pulse y se configura una sola vez en el servidor con `npm run configure:meta-app`. El comando valida el identificador y el secreto, guarda ambos en el llavero de macOS y reinicia Pulse sin imprimir el secreto. Cada empresa conserva únicamente los identificadores y tokens cifrados de su página o cuenta profesional. Las credenciales antiguas guardadas por empresa siguen funcionando durante la transición.
+
 - Facebook OAuth: `/api/facebook/iniciar` y `/api/facebook/callback`.
 - Facebook webhook: `https://pulse.jokma.app/api/facebook/webhook` con token `jokma-pulse-facebook`.
 - Instagram OAuth: `/api/instagram/iniciar` y `https://pulse.jokma.app/api/instagram/callback`.

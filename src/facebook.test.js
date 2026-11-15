@@ -7,6 +7,7 @@ import {
   beginLogin,
   callbackMotivo,
   completeLogin,
+  metaAppCredentials,
   readState,
   requestOrigin,
   settingsWithPage,
@@ -76,6 +77,17 @@ test("el enlace de Facebook no incluye el secreto y el estado vuelve a la empres
     new URL(pulse.url).searchParams.get("redirect_uri"),
     "https://pulse.jokma.app/api/facebook/callback",
   );
+});
+
+test("Facebook puede usar la app global de Pulse sin guardar su secreto por empresa", () => {
+  const env = { PULSE_META_APP_ID: "1036513856135777", PULSE_META_APP_SECRET: "secreto-global-de-prueba" };
+  assert.deepEqual(metaAppCredentials({ id: "co-lumen" }, env), {
+    appId: "1036513856135777",
+    secret: "secreto-global-de-prueba",
+  });
+  const started = beginLogin({ id: "co-lumen" }, "https://pulse.jokma.app", 1_700_000_000_000, env);
+  assert.equal(new URL(started.url).searchParams.get("client_id"), "1036513856135777");
+  assert.equal(started.url.includes("secreto-global-de-prueba"), false);
 });
 
 test("el canje guarda la página que coincide y conserva el resto de ajustes", async () => {

@@ -15,7 +15,7 @@ import { sendEmailReply, syncEmailInbox, verifyEmailConnection } from "./src/ema
 import { listGoogleReviews, replyGoogleReview } from "./src/google-reviews.js";
 import { listXMessages, sendXMessage } from "./src/x.js";
 import { readFacebookEvents, sendMetaMessage, verifyMetaConnection } from "./src/meta-messaging.js";
-import { beginLogin, callbackMotivo, completeLogin, readState, requestOrigin, settingsWithPage } from "./src/facebook.js";
+import { beginLogin, callbackMotivo, completeLogin, metaAppCredentials, readState, requestOrigin, settingsWithPage } from "./src/facebook.js";
 import {
   PULSE_APP_ID,
   acceptedSignature,
@@ -117,6 +117,9 @@ function meta() {
     modelos: MODELS,
     parametros: PARAMETERS,
     conexiones: CONNECTIONS,
+    integraciones: {
+      metaAppConfigurada: Boolean(process.env.PULSE_META_APP_SECRET),
+    },
   };
 }
 
@@ -578,17 +581,16 @@ app.get("/api/facebook/callback", async (req, res) => {
     return;
   }
   const company = await store.getCompanyWithSecrets(companyId);
-  const appId = company?.ajustes?.meta_app_id;
-  const appSecret = company?.ajustes?.meta_app_secret;
-  if (!company || !appId || !appSecret) {
+  const creds = metaAppCredentials(company);
+  if (!company || !creds.secret) {
     facebookRedirect(res, "sin_app");
     return;
   }
   try {
     const page = await completeLogin({
       code,
-      appId,
-      appSecret,
+      appId: creds.appId,
+      appSecret: creds.secret,
       origin: facebookOrigin(req),
       organization: company.ajustes?.organization || company.nombre,
     });

@@ -36,8 +36,8 @@ export const CONNECTIONS = [
   {
     red: "Facebook",
     filas: [
-      { nombre: "Identificador de la app de Meta", api: "meta_app_id" },
-      { nombre: "Secreto de la app de Meta", api: "meta_app_secret", secreto: true },
+      { nombre: "Identificador de la app de Meta", api: "meta_app_id", oculto: true },
+      { nombre: "Secreto de la app de Meta", api: "meta_app_secret", secreto: true, oculto: true },
       { nombre: "Token de página", api: "facebook_page_token", secreto: true },
       { nombre: "Identificador de página", api: "facebook_page_id" },
     ],

@@ -18,6 +18,28 @@ function motivoError(motivo) {
   return Object.assign(new Error(motivo), { motivo });
 }
 
+function assetKey(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function chooseInstagram(linked, organization) {
+  if (linked.length === 1) return linked[0];
+  const wanted = assetKey(organization);
+  if (!wanted) throw motivoError("instagram_ambiguo");
+  const exact = linked.filter((item) => assetKey(item.page?.name) === wanted);
+  if (exact.length === 1) return exact[0];
+  const compatible = linked.filter((item) => {
+    const name = assetKey(item.page?.name);
+    return name.includes(wanted) || wanted.includes(name);
+  });
+  if (compatible.length === 1) return compatible[0];
+  throw motivoError("instagram_ambiguo");
+}
+
 function same(left, right) {
   const a = Buffer.from(String(left || ""));
   const b = Buffer.from(String(right || ""));
@@ -173,9 +195,7 @@ export async function completeLogin({
     .map((page) => ({ page, ig: page?.instagram_business_account }))
     .filter((item) => item.page?.id && item.page?.access_token && item.ig?.id);
   if (!linked.length) throw motivoError("sin_instagram");
-  const wanted = String(organization || "").trim().toLowerCase();
-  const match =
-    linked.find((item) => String(item.page.name || "").trim().toLowerCase() === wanted) || linked[0];
+  const match = chooseInstagram(linked, organization);
   const igToken = String(match.page.access_token);
   const igUserId = String(match.ig.id);
   await subscribe(String(match.page.id), igUserId, igToken, fetchImpl);

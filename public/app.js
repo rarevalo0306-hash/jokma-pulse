@@ -1928,6 +1928,7 @@ function facebookReturn() {
     sin_app: "Pega el identificador y el secreto de la app de Meta antes de conectar.",
     denegado: "Facebook no autorizó la conexión.",
     sin_pagina: "Esa cuenta no tiene una página de Facebook.",
+    pagina_ambigua: "Meta devolvió varias páginas y ninguna coincide de forma segura con esta empresa.",
     facebook: "Facebook no completó el inicio de sesión.",
   };
   if (facebook === "ok") {
@@ -1951,6 +1952,7 @@ function instagramReturn() {
     sin_app: "Pega el secreto de la app de Meta, en Facebook, antes de conectar Instagram.",
     denegado: "Instagram no autorizó la conexión.",
     sin_instagram: "Esa cuenta no tiene una cuenta profesional de Instagram unida a una página.",
+    instagram_ambiguo: "Meta devolvió varias cuentas de Instagram y ninguna coincide de forma segura con esta empresa.",
     instagram: "Instagram no completó el inicio de sesión.",
   };
   if (instagram === "ok") {

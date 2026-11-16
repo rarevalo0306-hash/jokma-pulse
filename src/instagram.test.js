@@ -111,6 +111,30 @@ test("el canje guarda la cuenta de Instagram y no toca Facebook ni el correo", a
   assert.equal(saved.ajustes.x_api_key, "");
 });
 
+test("Instagram no elige una cuenta arbitraria cuando hay varias", async () => {
+  await assert.rejects(
+    () =>
+      completeLogin({
+        code: "codigo-de-prueba",
+        appId: PULSE_APP_ID,
+        appSecret: "secreto-de-prueba",
+        origin: "https://pulse.jokma.app",
+        organization: "RicardoPA",
+        fetchImpl: async (target, options) => {
+          if (String(options.body || "").includes("fb_exchange_token")) return jsonResponse({ access_token: "largo" });
+          if (String(target).includes("/me/accounts")) {
+            return jsonResponse({ data: [
+              { id: "1", name: "Otra Empresa", access_token: "token-1", instagram_business_account: { id: "101" } },
+              { id: "2", name: "Negocio Diferente", access_token: "token-2", instagram_business_account: { id: "202" } },
+            ] });
+          }
+          return jsonResponse({ access_token: "corto" });
+        },
+      }),
+    (error) => error.motivo === "instagram_ambiguo",
+  );
+});
+
 test("un DM y un comentario entran en la empresa de esa cuenta y no se duplican", () => {
   const store = tempStore();
   store.updateSettings("co-lumen", {

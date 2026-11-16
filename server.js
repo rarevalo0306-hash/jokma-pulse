@@ -597,7 +597,7 @@ app.get("/api/facebook/callback", async (req, res) => {
     await store.updateSettings(company.id, settingsWithPage(company, page));
     facebookRedirect(res);
   } catch (error) {
-    facebookRedirect(res, error.motivo === "sin_pagina" ? "sin_pagina" : "facebook");
+    facebookRedirect(res, ["sin_pagina", "pagina_ambigua"].includes(error.motivo) ? error.motivo : "facebook");
   }
 });
 
@@ -671,7 +671,7 @@ app.get("/api/instagram/callback", async (req, res) => {
     await store.updateSettings(company.id, settingsWithInstagram(company, account));
     instagramRedirect(res);
   } catch (error) {
-    instagramRedirect(res, error.motivo === "sin_instagram" ? "sin_instagram" : "instagram");
+    instagramRedirect(res, ["sin_instagram", "instagram_ambiguo"].includes(error.motivo) ? error.motivo : "instagram");
   }
 });
 

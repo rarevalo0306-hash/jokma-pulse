@@ -21,6 +21,28 @@ function motivoError(motivo) {
   return Object.assign(new Error(motivo), { motivo });
 }
 
+function assetKey(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function choosePage(pages, organization) {
+  if (pages.length === 1) return pages[0];
+  const wanted = assetKey(organization);
+  if (!wanted) throw motivoError("pagina_ambigua");
+  const exact = pages.filter((page) => assetKey(page.name) === wanted);
+  if (exact.length === 1) return exact[0];
+  const compatible = pages.filter((page) => {
+    const name = assetKey(page.name);
+    return name.includes(wanted) || wanted.includes(name);
+  });
+  if (compatible.length === 1) return compatible[0];
+  throw motivoError("pagina_ambigua");
+}
+
 function same(left, right) {
   const a = Buffer.from(String(left || ""));
   const b = Buffer.from(String(right || ""));
@@ -194,9 +216,7 @@ export async function completeLogin({
     ? accounts.data.filter((page) => page?.id && page?.access_token)
     : [];
   if (!pages.length) throw motivoError("sin_pagina");
-  const wanted = String(organization || "").trim().toLowerCase();
-  const match =
-    pages.find((page) => String(page.name || "").trim().toLowerCase() === wanted) || pages[0];
+  const match = choosePage(pages, organization);
   await graphPost(
     `${match.id}/subscribed_apps`,
     { subscribed_fields: "messages", access_token: String(match.access_token) },

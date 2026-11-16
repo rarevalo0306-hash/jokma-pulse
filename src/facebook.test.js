@@ -191,3 +191,27 @@ test("sin páginas o con una redirección no se guarda un token", async () => {
     (error) => error.motivo === "facebook",
   );
 });
+
+test("Facebook no elige una página arbitraria cuando administra varias", async () => {
+  await assert.rejects(
+    () =>
+      completeLogin({
+        code: "codigo-de-prueba",
+        appId: "app-id-de-prueba",
+        appSecret: "secreto-de-prueba",
+        origin: "https://pulse.jokma.app",
+        organization: "RicardoPA",
+        fetchImpl: async (target, options) => {
+          if (String(options.body || "").includes("fb_exchange_token")) return jsonResponse({ access_token: "largo" });
+          if (target.includes("/me/accounts")) {
+            return jsonResponse({ data: [
+              { id: "1", name: "Otra Empresa", access_token: "token-1" },
+              { id: "2", name: "Negocio Diferente", access_token: "token-2" },
+            ] });
+          }
+          return jsonResponse({ access_token: "corto" });
+        },
+      }),
+    (error) => error.motivo === "pagina_ambigua",
+  );
+});

@@ -1142,7 +1142,6 @@ app.addEventListener("click", async (event) => {
     backToRegistrationUser();
     return;
   }
-  if (button.closest("form")) return;
   try {
     state.error = "";
     const action = button.dataset.action;

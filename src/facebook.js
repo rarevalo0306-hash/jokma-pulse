@@ -197,5 +197,10 @@ export async function completeLogin({
   const wanted = String(organization || "").trim().toLowerCase();
   const match =
     pages.find((page) => String(page.name || "").trim().toLowerCase() === wanted) || pages[0];
+  await graphPost(
+    `${match.id}/subscribed_apps`,
+    { subscribed_fields: "messages", access_token: String(match.access_token) },
+    fetchImpl,
+  );
   return { pageId: String(match.id), pageToken: String(match.access_token) };
 }

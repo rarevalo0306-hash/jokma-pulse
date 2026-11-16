@@ -154,8 +154,11 @@ function allowedCompanyIds(user) {
 }
 
 export function createSupabaseStore(client, authStore, { createAuthClient, credentialStore } = {}) {
+  const legacyUsers = createAuthClient ? [] : authStore.getState().users;
+
   async function load() {
-    const [organizationRows, companyRows, accountRows, contactRows, conversationRows, messageRows, noteRows] = await Promise.all([
+    const [profileRows, organizationRows, companyRows, accountRows, contactRows, conversationRows, messageRows, noteRows] = await Promise.all([
+      client.from("profiles").select("id, username, display_name"),
       client.from("organizations").select("id, slug, name"),
       client.from("companies").select("*"),
       client.from("channel_accounts").select("*"),
@@ -164,6 +167,11 @@ export function createSupabaseStore(client, authStore, { createAuthClient, crede
       client.from("messages").select("*"),
       client.from("conversation_notes").select("*"),
     ]);
+    const users = check(profileRows, "No se pudieron leer los perfiles").map((row) => ({
+      id: row.id,
+      nombre: row.display_name || row.username || "Equipo",
+      usuario: row.username || "",
+    }));
     const organizations = check(organizationRows, "No se pudieron leer las organizaciones").map(organizationFromRow);
     const companies = check(companyRows, "No se pudieron leer las empresas").map(companyFromRow);
     const companyById = new Map(companies.map((item) => [item.id, item]));
@@ -179,7 +187,7 @@ export function createSupabaseStore(client, authStore, { createAuthClient, crede
       conversations.map((item) => [item.id, contactById.get(item.contact_id)]),
     );
     const notesByConversation = new Map();
-    const userNames = new Map(authStore.getState().users.map((user) => [user.id, user.nombre]));
+    const userNames = new Map(users.map((user) => [user.id, user.nombre]));
     for (const note of check(noteRows, "No se pudieron leer las notas")) {
       const notes = notesByConversation.get(note.conversation_id) || [];
       notes.push({ id: note.id, texto: note.body, autor: userNames.get(note.author_user_id) || "Equipo", createdAt: note.created_at });
@@ -195,7 +203,7 @@ export function createSupabaseStore(client, authStore, { createAuthClient, crede
       ),
     );
     return {
-      users: authStore.getState().users,
+      users,
       organizations,
       companies,
       accounts,
@@ -224,7 +232,7 @@ export function createSupabaseStore(client, authStore, { createAuthClient, crede
   }
 
   function userById(userId) {
-    return authStore.getState().users.find((item) => item.id === userId) || null;
+    return legacyUsers.find((item) => item.id === userId) || null;
   }
 
   async function supabaseUserById(userId) {

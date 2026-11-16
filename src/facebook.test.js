@@ -120,11 +120,17 @@ test("el canje guarda la página que coincide y conserva el resto de ajustes", a
           ],
         });
       }
+      if (target.includes("/222/subscribed_apps")) {
+        assert.equal(String(options.body).includes("subscribed_fields=messages"), true);
+        assert.equal(String(options.body).includes("access_token=token-pagina-de-prueba"), true);
+        return jsonResponse({ success: true });
+      }
       return jsonResponse({ access_token: "user-corto" });
     },
   });
   assert.equal(page.pageId, "222");
   assert.equal(page.pageToken, "token-pagina-de-prueba");
+  assert.equal(calls.some((call) => call.target.includes("/222/subscribed_apps")), true);
   assert.equal(calls[0].method, "POST");
   assert.equal(calls[0].redirect, "manual");
   assert.equal(String(calls[0].body).includes("secreto-de-prueba"), true);

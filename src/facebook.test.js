@@ -51,6 +51,8 @@ test("el enlace de Facebook no incluye el secreto y el estado vuelve a la empres
   assert.equal(url.searchParams.get("response_type"), "code");
   assert.match(url.searchParams.get("scope"), /pages_show_list/);
   assert.match(url.searchParams.get("scope"), /pages_messaging/);
+  assert.match(url.searchParams.get("scope"), /pages_manage_metadata/);
+  assert.doesNotMatch(url.searchParams.get("scope"), /pages_manage_engagement/);
   assert.equal(started.url.includes("secreto-de-prueba"), false);
   assert.equal(readState(url.searchParams.get("state"), now), "co-lumen");
   assert.equal(readState(url.searchParams.get("state"), now + 11 * 60 * 1000), null);

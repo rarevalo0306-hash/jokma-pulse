@@ -14,7 +14,7 @@ const SCOPES = [
   "pages_show_list",
   "pages_messaging",
   "pages_read_engagement",
-  "pages_manage_engagement",
+  "pages_manage_metadata",
 ].join(",");
 
 function motivoError(motivo) {
